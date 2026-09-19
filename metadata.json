@@ -1,0 +1,6 @@
+{
+  "name": "ReimuWallet",
+  "description": "Personal finance and sanctum vault ledger application with offline-first transaction tracking, budget allowances, and savings goals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

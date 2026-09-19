@@ -1,0 +1,258 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --color-primary: #FF5E36;
+  --color-primary-container: #2A1711;
+  --color-primary-fixed: #FF5E36;
+  --color-primary-fixed-dim: #E04822;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #FFB39E;
+  --color-on-primary-fixed: #0D0F14;
+  --color-secondary: #94A3B8;
+  --color-secondary-container: #1C222D;
+  --color-secondary-fixed: #28303F;
+  --color-on-secondary: #F1F5F9;
+  --color-on-secondary-container: #CBD5E1;
+  --color-tertiary: #FF5E36;
+  --color-tertiary-container: #251610;
+  --color-tertiary-fixed: #3B1F16;
+  --color-on-tertiary: #ffffff;
+  --color-surface: #0D0F14;
+  --color-surface-container-lowest: #0D0F14;
+  --color-surface-container-low: #11141A;
+  --color-surface-container: #151921;
+  --color-surface-container-high: #1C222D;
+  --color-surface-container-highest: #242B38;
+  --color-on-surface: #F1F5F9;
+  --color-on-surface-variant: #94A3B8;
+  --color-outline: #28303F;
+  --color-outline-variant: #1F2532;
+  --color-error: #F43F5E;
+  --color-error-container: #33151D;
+}
+
+body {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: #0D0F14;
+  color: #F1F5F9;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Headings font assignment */
+h1, h2, h3, h4, .font-display {
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+}
+
+/* Flat clean styling - eliminate shadows */
+* {
+  box-shadow: none !important;
+  text-shadow: none !important;
+  filter: none !important;
+}
+
+/* Light mode styles with cohesive slate palette */
+html.light {
+  color-scheme: light;
+}
+
+html.light body {
+  background-color: #F8FAFC;
+  color: #0F172A;
+}
+
+html.light header {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  border-color: #E2E8F0 !important;
+}
+
+html.light nav {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  border-color: #E2E8F0 !important;
+}
+
+/* Light mode surfaces and cards - harmonious slate mappings */
+html.light .bg-\[\#0A0A0A\],
+html.light .bg-\[\#0D0F14\],
+html.light .bg-\[\#0D0D0D\]\/95 { background-color: #F8FAFC !important; }
+
+html.light .bg-\[\#121212\],
+html.light .bg-\[\#111111\],
+html.light .bg-\[\#141414\],
+html.light .bg-\[\#151921\] { background-color: #FFFFFF !important; }
+
+html.light .bg-\[\#161616\],
+html.light .bg-\[\#181818\],
+html.light .bg-\[\#1A1A1A\],
+html.light .bg-\[\#1C1C1C\],
+html.light .bg-\[\#1C222D\] { background-color: #F1F5F9 !important; }
+
+html.light .bg-\[\#1E1E1E\],
+html.light .bg-\[\#222222\],
+html.light .bg-\[\#242424\],
+html.light .bg-\[\#242B38\] { background-color: #E2E8F0 !important; }
+
+/* Light mode accent containers */
+html.light .bg-\[\#24120C\],
+html.light .bg-\[\#2A1711\],
+html.light .bg-\[\#1A1412\],
+html.light .bg-\[\#341810\] { background-color: #FFF3EB !important; }
+html.light .bg-\[\#1E3A20\],
+html.light .bg-\[\#132E27\] { background-color: #ECFDF5 !important; }
+html.light .bg-\[\#2C1818\],
+html.light .bg-\[\#33151D\] { background-color: #FFF1F2 !important; }
+
+/* Light mode text colors */
+html.light .text-white,
+html.light .text-\[\#F1F5F9\],
+html.light .text-\[\#F0F0F0\],
+html.light .text-\[\#E0E0E0\] { color: #0F172A !important; }
+
+html.light .text-\[\#CCCCCC\],
+html.light .text-\[\#AAAAAA\],
+html.light .text-\[\#94A3B8\] { color: #475569 !important; }
+
+html.light .text-\[\#888888\],
+html.light .text-\[\#777777\],
+html.light .text-\[\#666666\],
+html.light .text-\[\#64748B\] { color: #64748B !important; }
+
+/* Light mode borders */
+html.light .border-\[\#262626\],
+html.light .border-\[\#222222\],
+html.light .border-\[\#242424\],
+html.light .border-\[\#1F1F1F\],
+html.light .border-\[\#202020\],
+html.light .border-\[\#282828\],
+html.light .border-\[\#2A2A2A\],
+html.light .border-\[\#28303F\],
+html.light .border-\[\#1F2532\] { border-color: #E2E8F0 !important; }
+
+html.light .border-\[\#2E2E2E\],
+html.light .border-\[\#333333\] { border-color: #CBD5E1 !important; }
+
+html.light .border-\[\#382018\],
+html.light .border-\[\#FF3E00\]\/40,
+html.light .border-\[\#FF5E36\]\/40 { border-color: #FED7AA !important; }
+
+/* Hover states in light mode */
+html.light .hover\:bg-\[\#161616\]:hover,
+html.light .hover\:bg-\[\#181818\]:hover,
+html.light .hover\:bg-\[\#1C222D\]:hover { background-color: #E2E8F0 !important; }
+
+html.light .hover\:bg-\[\#1C1C1C\]:hover,
+html.light .hover\:bg-\[\#1E1E1E\]:hover,
+html.light .hover\:bg-\[\#252525\]:hover { background-color: #CBD5E1 !important; }
+
+html.light .hover\:text-white:hover { color: #0F172A !important; }
+
+/* Material symbols utility */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  vertical-align: middle;
+}
+
+/* Typographic scale */
+.font-headline-display {
+  font-family: 'Outfit', sans-serif;
+  font-size: 36px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-weight: 800;
+}
+.font-headline-lg {
+  font-family: 'Outfit', sans-serif;
+  font-size: 28px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  font-weight: 800;
+}
+.font-headline-md {
+  font-family: 'Outfit', sans-serif;
+  font-size: 20px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+.font-headline-sm {
+  font-family: 'Outfit', sans-serif;
+  font-size: 16px;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+  font-weight: 700;
+}
+.font-finance-metric-hero {
+  font-size: 32px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-weight: 800;
+  font-family: 'JetBrains Mono', monospace;
+}
+.font-finance-metric-lg {
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+.font-finance-metric-md {
+  font-size: 15px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', monospace;
+}
+.font-label-caps {
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.15em;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.font-label-sm {
+  font-size: 11px;
+  line-height: 15px;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.font-body-md {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+}
+.font-body-sm {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 400;
+}
+.font-body-lg {
+  font-size: 15px;
+  line-height: 22px;
+  letter-spacing: -0.01em;
+  font-weight: 400;
+}
+
+/* Hide scrollbars for clean experience */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
