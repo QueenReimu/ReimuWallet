@@ -193,7 +193,7 @@ export const InstantEntryView: React.FC<InstantEntryViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col w-full pb-10 max-w-lg mx-auto font-sans">
+    <div className="flex flex-col w-full pb-10 max-w-md mx-auto font-sans">
       {/* Top Action Header */}
       <div className="flex items-center justify-between py-2 mb-3">
         <button

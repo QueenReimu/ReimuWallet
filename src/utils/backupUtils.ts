@@ -19,6 +19,8 @@ export interface BackupValidationResult {
     walletCount: number;
     transactionCount: number;
     goalCount: number;
+    totalBalance?: number;
+    userName?: string;
   };
 }
 
@@ -73,7 +75,9 @@ export function generateBackupJson(
 
 export function downloadBackupFile(jsonString: string, filename?: string) {
   const dateStr = new Date().toISOString().slice(0, 10);
-  const finalName = filename || `ReimuWallet_Backup_${dateStr}.json`;
+  const now = new Date();
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+  const finalName = filename || `ReimuWallet_Backup_${dateStr}_${timeStr}.json`;
   const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -82,33 +86,83 @@ export function downloadBackupFile(jsonString: string, filename?: string) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function validateBackupJson(jsonString: string): BackupValidationResult {
+export function validateBackupJson(jsonInput: string | object): BackupValidationResult {
   try {
-    const parsed = JSON.parse(jsonString);
-
-    if (!parsed || typeof parsed !== 'object') {
-      return { valid: false, error: 'Format file cadangan tidak valid (bukan objek JSON).' };
+    let parsed: any;
+    if (typeof jsonInput === 'string') {
+      const trimmed = jsonInput.trim();
+      if (!trimmed) {
+        return { valid: false, error: 'Data JSON kosong. Silakan pilih berkas atau masukkan teks JSON.' };
+      }
+      parsed = JSON.parse(trimmed);
+    } else {
+      parsed = jsonInput;
     }
 
-    if (!Array.isArray(parsed.wallets) && !Array.isArray(parsed.transactions)) {
+    if (!parsed || typeof parsed !== 'object') {
+      return { valid: false, error: 'Format berkas cadangan tidak valid (harus berupa objek JSON).' };
+    }
+
+    // Support nested { data: { ... } } if present
+    const root = parsed.data && typeof parsed.data === 'object' && !Array.isArray(parsed.data)
+      ? parsed.data
+      : parsed;
+
+    // Support raw transactions array if exported as array
+    if (Array.isArray(root)) {
+      const isTransactions = root.every((item) => item && typeof item === 'object' && ('amount' in item || 'category' in item));
+      if (isTransactions) {
+        const payload: BackupDataPayload = {
+          version: '1.0.0',
+          app: 'ReimuWallet',
+          exportedAt: new Date().toISOString(),
+          wallets: [],
+          transactions: root,
+          savingsGoals: [],
+          theme: 'dark',
+        };
+        return {
+          valid: true,
+          payload,
+          stats: {
+            walletCount: 0,
+            transactionCount: root.length,
+            goalCount: 0,
+            totalBalance: 0,
+          },
+        };
+      }
+    }
+
+    const rawWallets = Array.isArray(root.wallets) ? root.wallets : [];
+    const rawTransactions = Array.isArray(root.transactions) ? root.transactions : [];
+    const rawGoals = Array.isArray(root.savingsGoals)
+      ? root.savingsGoals
+      : Array.isArray(root.goals)
+      ? root.goals
+      : [];
+
+    if (rawWallets.length === 0 && rawTransactions.length === 0 && rawGoals.length === 0) {
       return {
         valid: false,
-        error: 'File cadangan harus memiliki setidaknya daftar dompet atau transaksi yang valid.',
+        error: 'Berkas cadangan tidak berisi daftar dompet, transaksi kas, atau celengan yang dapat dipulihkan.',
       };
     }
 
+    const totalBalance = rawWallets.reduce((acc: number, w: any) => acc + (Number(w.balance) || 0), 0);
+
     const payload: BackupDataPayload = {
-      version: parsed.version || '1.0.0',
+      version: root.version || '1.0.0',
       app: 'ReimuWallet',
-      exportedAt: parsed.exportedAt || new Date().toISOString(),
-      userProfile: parsed.userProfile,
-      wallets: Array.isArray(parsed.wallets) ? parsed.wallets : [],
-      transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
-      savingsGoals: Array.isArray(parsed.savingsGoals) ? parsed.savingsGoals : [],
-      theme: parsed.theme === 'light' ? 'light' : 'dark',
+      exportedAt: root.exportedAt || new Date().toISOString(),
+      userProfile: root.userProfile,
+      wallets: rawWallets,
+      transactions: rawTransactions,
+      savingsGoals: rawGoals,
+      theme: root.theme === 'light' ? 'light' : 'dark',
     };
 
     return {
@@ -118,12 +172,14 @@ export function validateBackupJson(jsonString: string): BackupValidationResult {
         walletCount: payload.wallets.length,
         transactionCount: payload.transactions.length,
         goalCount: payload.savingsGoals.length,
+        totalBalance,
+        userName: payload.userProfile?.name,
       },
     };
   } catch (err: any) {
     return {
       valid: false,
-      error: `Gagal membaca file JSON: ${err?.message || 'Sintaks tidak valid'}`,
+      error: `Gagal membaca berkas JSON: ${err?.message || 'Sintaks format JSON tidak valid'}`,
     };
   }
 }

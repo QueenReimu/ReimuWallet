@@ -183,13 +183,13 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
   const hasData = transactions.length > 0;
 
   return (
-    <div className="flex flex-col w-full gap-4 pb-10 max-w-lg mx-auto font-sans">
+    <div className="flex flex-col w-full gap-4 pb-10 max-w-md mx-auto font-sans">
       {/* Sub-Tabs: Flow & Cadence | Budget Limits | Deep Audit */}
       <div className="flex items-center bg-[#141414] p-1 rounded-xl border border-[#262626]">
         <button
           id="insights-tab-overview"
           onClick={() => setActiveSubTab('overview')}
-          className={`flex-1 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${
+          className={`flex-1 py-2 px-1 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-wider transition-all truncate text-center ${
             activeSubTab === 'overview'
               ? 'bg-[#FF3E00] text-white shadow-[0_0_12px_rgba(255,62,0,0.35)]'
               : 'text-[#888888] hover:text-white'
@@ -200,24 +200,24 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
         <button
           id="insights-tab-budget"
           onClick={() => setActiveSubTab('budget')}
-          className={`flex-1 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${
+          className={`flex-1 py-2 px-1 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-wider transition-all truncate text-center ${
             activeSubTab === 'budget'
               ? 'bg-[#FF3E00] text-white shadow-[0_0_12px_rgba(255,62,0,0.35)]'
               : 'text-[#888888] hover:text-white'
           }`}
         >
-          Alokasi Anggaran
+          Anggaran
         </button>
         <button
           id="insights-tab-audit"
           onClick={() => setActiveSubTab('audit')}
-          className={`flex-1 py-2 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all ${
+          className={`flex-1 py-2 px-1 rounded-lg text-[10px] sm:text-[11px] font-black uppercase tracking-wider transition-all truncate text-center ${
             activeSubTab === 'audit'
               ? 'bg-[#FF3E00] text-white shadow-[0_0_12px_rgba(255,62,0,0.35)]'
               : 'text-[#888888] hover:text-white'
           }`}
         >
-          Audit Mendalam
+          Audit
         </button>
       </div>
 

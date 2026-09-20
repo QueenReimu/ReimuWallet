@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <clipPath id="squircle">
+      <rect width="512" height="512" rx="112" ry="112" />
+    </clipPath>
+  </defs>
+  <!-- Squircle Background -->
+  <rect width="512" height="512" rx="112" ry="112" fill="#B81424" />
+  
+  <!-- Torii Gate Graphics -->
+  <g id="torii-shrine-gate">
+    <!-- Kasagi: Top curved roof beam with rounded ends -->
+    <path 
+      d="M 94 148 Q 256 166 418 148" 
+      stroke="#FFFFFF" 
+      stroke-width="32" 
+      stroke-linecap="round" 
+      fill="none" 
+    />
+    
+    <!-- Shimaki / Nuki: Second horizontal bar -->
+    <path 
+      d="M 128 208 L 384 208" 
+      stroke="#FFFFFF" 
+      stroke-width="30" 
+      stroke-linecap="round" 
+      fill="none" 
+    />
+    
+    <!-- Left Pillar (Hashira) with outward flared foot -->
+    <path 
+      d="M 174 210 L 174 358 L 136 422" 
+      stroke="#FFFFFF" 
+      stroke-width="28" 
+      stroke-linecap="round" 
+      stroke-linejoin="round" 
+      fill="none" 
+    />
+    
+    <!-- Right Pillar (Hashira) with outward flared foot -->
+    <path 
+      d="M 338 210 L 338 358 L 376 422" 
+      stroke="#FFFFFF" 
+      stroke-width="28" 
+      stroke-linecap="round" 
+      stroke-linejoin="round" 
+      fill="none" 
+    />
+    
+    <!-- Sacred Sun / Golden Bell Orb in center -->
+    <circle 
+      cx="256" 
+      cy="274" 
+      r="44" 
+      fill="#F5BA13" 
+    />
+  </g>
+</svg>

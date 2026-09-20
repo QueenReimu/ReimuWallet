@@ -19,68 +19,83 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onSelectTab, on
 
   const isTransactionsActive = activeTab === 'transactions' || (activeTab as string) === 'ledger';
   const isVaultActive = activeTab === 'vault-settings' || (activeTab as string) === 'vault';
+  const isInstantActive = activeTab === 'instant-entry';
 
   return (
     <nav className="fixed bottom-0 inset-x-0 z-50 pb-safe bg-[#0D0F14]/95 backdrop-blur-xl border-t border-[#28303F]">
-      <div className="relative flex items-center justify-around h-18 px-2 max-w-lg mx-auto">
-        {/* Home */}
+      {/* 5-column grid ensures the center '+' button is mathematically and optically centered */}
+      <div className="grid grid-cols-5 items-center h-16 max-w-md mx-auto px-1 w-full">
+        {/* 1. Home / Beranda */}
         <button
           onClick={() => handleTab('dashboard')}
           aria-label="Beranda Utama"
-          className={`flex flex-col items-center justify-center flex-1 h-full min-h-[48px] transition-colors ${
+          className={`flex flex-col items-center justify-center h-full min-h-[48px] transition-colors ${
             activeTab === 'dashboard' ? 'text-[#FF5E36] font-bold' : 'text-[#64748B] hover:text-[#94A3B8]'
           }`}
         >
-          <span className="material-symbols-outlined text-[24px]">home</span>
-          <span className="font-label-caps text-[9px] mt-1 uppercase tracking-[0.15em]">Beranda</span>
+          <span className="material-symbols-outlined text-[22px]">home</span>
+          <span className="font-label-caps text-[9px] mt-0.5 uppercase tracking-[0.12em]">Beranda</span>
         </button>
 
-        {/* Ledger */}
+        {/* 2. Ledger / Buku Kas */}
         <button
           onClick={() => handleTab('transactions')}
           aria-label="Catatan Buku Kas"
-          className={`flex flex-col items-center justify-center flex-1 h-full min-h-[48px] transition-colors ${
+          className={`flex flex-col items-center justify-center h-full min-h-[48px] transition-colors ${
             isTransactionsActive ? 'text-[#FF5E36] font-bold' : 'text-[#64748B] hover:text-[#94A3B8]'
           }`}
         >
-          <span className="material-symbols-outlined text-[24px]">receipt_long</span>
-          <span className="font-label-caps text-[9px] mt-1 uppercase tracking-[0.15em]">Buku Kas</span>
+          <span className="material-symbols-outlined text-[22px]">receipt_long</span>
+          <span className="font-label-caps text-[9px] mt-0.5 uppercase tracking-[0.12em]">Buku Kas</span>
         </button>
 
-        {/* Floating Quick Entry (+) Button */}
-        <div className="relative flex-1 flex justify-center items-center">
+        {/* 3. CENTER: Catat Transaksi (+) Elevated Floating Button */}
+        <div className="relative flex flex-col items-center justify-end pb-1.5 h-full">
           <button
             onClick={() => handleTab('instant-entry')}
             aria-label="Catat transaksi baru"
-            title="Catat Transaksi Cepat"
-            className="absolute -top-5 w-13 h-13 rounded-2xl bg-[#FF5E36] hover:bg-[#E04822] text-white flex items-center justify-center border border-[#FF8260]/30 transition-all active:scale-95"
+            title="Catat Transaksi Baru (+)"
+            className={`absolute -top-5 left-1/2 -translate-x-1/2 w-13 h-13 rounded-2xl flex items-center justify-center border transition-all active:scale-95 ${
+              isInstantActive
+                ? 'bg-[#E04822] text-white border-white/50 ring-4 ring-[#FF5E36]/30'
+                : 'bg-[#FF5E36] hover:bg-[#E04822] text-white border-[#FF8260]/40 hover:scale-105'
+            }`}
           >
-            <span className="material-symbols-outlined text-[28px] font-bold">add</span>
+            <span className="material-symbols-outlined text-[28px] font-black leading-none">
+              add
+            </span>
           </button>
+          <span
+            className={`font-label-caps text-[9px] uppercase tracking-[0.12em] font-bold transition-colors ${
+              isInstantActive ? 'text-[#FF5E36]' : 'text-[#94A3B8]'
+            }`}
+          >
+            Catat
+          </span>
         </div>
 
-        {/* Insights / Analytics */}
+        {/* 4. Insights / Analisis */}
         <button
           onClick={() => handleTab('analytics')}
           aria-label="Analisis dan Statistik Keuangan"
-          className={`flex flex-col items-center justify-center flex-1 h-full min-h-[48px] transition-colors ${
+          className={`flex flex-col items-center justify-center h-full min-h-[48px] transition-colors ${
             activeTab === 'analytics' ? 'text-[#FF5E36] font-bold' : 'text-[#64748B] hover:text-[#94A3B8]'
           }`}
         >
-          <span className="material-symbols-outlined text-[24px]">monitoring</span>
-          <span className="font-label-caps text-[9px] mt-1 uppercase tracking-[0.15em]">Analisis</span>
+          <span className="material-symbols-outlined text-[22px]">monitoring</span>
+          <span className="font-label-caps text-[9px] mt-0.5 uppercase tracking-[0.12em]">Analisis</span>
         </button>
 
-        {/* Vault Settings */}
+        {/* 5. Vault / Brankas */}
         <button
           onClick={() => handleTab('vault-settings')}
           aria-label="Brankas dan Dompet"
-          className={`flex flex-col items-center justify-center flex-1 h-full min-h-[48px] transition-colors ${
+          className={`flex flex-col items-center justify-center h-full min-h-[48px] transition-colors ${
             isVaultActive ? 'text-[#FF5E36] font-bold' : 'text-[#64748B] hover:text-[#94A3B8]'
           }`}
         >
-          <span className="material-symbols-outlined text-[24px]">account_balance_wallet</span>
-          <span className="font-label-caps text-[9px] mt-1 uppercase tracking-[0.15em]">Brankas</span>
+          <span className="material-symbols-outlined text-[22px]">account_balance_wallet</span>
+          <span className="font-label-caps text-[9px] mt-0.5 uppercase tracking-[0.12em]">Brankas</span>
         </button>
       </div>
     </nav>

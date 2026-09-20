@@ -129,15 +129,15 @@ export default function App() {
   };
 
   const handleRestoreBackup = (payload: BackupDataPayload) => {
-    if (payload.wallets) {
+    if (Array.isArray(payload.wallets)) {
       setWallets(payload.wallets);
       localStorage.setItem('reimu_wallets', JSON.stringify(payload.wallets));
     }
-    if (payload.transactions) {
+    if (Array.isArray(payload.transactions)) {
       setTransactions(payload.transactions);
       localStorage.setItem('reimu_transactions', JSON.stringify(payload.transactions));
     }
-    if (payload.savingsGoals) {
+    if (Array.isArray(payload.savingsGoals)) {
       setSavingsGoals(payload.savingsGoals);
       localStorage.setItem('reimu_goals', JSON.stringify(payload.savingsGoals));
     }
@@ -341,7 +341,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0D0F14] text-[#F1F5F9] flex flex-col justify-between selection:bg-[#FF5E36] selection:text-white font-sans">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-[#0D0F14] text-[#F1F5F9] flex flex-col justify-between selection:bg-[#FF5E36] selection:text-white font-sans">
       {/* Persistent Sanctuary App Bar */}
       <Header
         activeTab={activeTab}
@@ -352,8 +352,8 @@ export default function App() {
         onToggleTheme={toggleTheme}
       />
 
-      {/* Main Content Area Container */}
-      <main className="flex-1 w-full max-w-md mx-auto px-4 pt-2 pb-24">
+      {/* Main Content Area Container strictly bounded for mobile app viewports */}
+      <main className="flex-1 w-full max-w-md mx-auto px-3.5 sm:px-4 pt-16 pb-28 overflow-x-hidden">
         {/* Dynamic Android Notification Detection Pill */}
         {showNotificationToast && activeTab !== 'instant-entry' && (
           <div className="mb-3.5 p-3 rounded-xl bg-[#151921] border border-[#28303F] flex items-center justify-between gap-2.5 transition-all">

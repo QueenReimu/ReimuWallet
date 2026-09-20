@@ -1,9 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Wallet, SavingsGoal, Transaction, UserProfile } from '../types';
 import { formatRupiah } from '../data/mockData';
 import { DetectionTesterModal } from './DetectionTesterModal';
 import { BackupRestoreModal } from './BackupRestoreModal';
-import { BackupDataPayload, generateBackupJson, downloadBackupFile } from '../utils/backupUtils';
+import { ReimuLogo } from './ReimuLogo';
+import {
+  BackupDataPayload,
+  generateBackupJson,
+  downloadBackupFile,
+  validateBackupJson,
+} from '../utils/backupUtils';
 import {
   formatCurrencyInput,
   parseCurrencyInput,
@@ -58,6 +64,35 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [showBackupModal, setShowBackupModal] = useState(false);
   const [showDetectionTesterModal, setShowDetectionTesterModal] = useState(false);
   const [backupToastMessage, setBackupToastMessage] = useState<string | null>(null);
+  const quickFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleQuickFileRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      const res = validateBackupJson(content);
+      if (!res.valid || !res.payload) {
+        setBackupToastMessage(res.error || 'Format berkas cadangan tidak valid.');
+        setTimeout(() => setBackupToastMessage(null), 5000);
+      } else {
+        if (onRestoreBackup) {
+          onRestoreBackup(res.payload);
+        }
+        setBackupToastMessage(
+          `Data berhasil dipulihkan! ${res.payload.transactions.length} transaksi dan ${res.payload.wallets.length} dompet telah kembali.`
+        );
+        setTimeout(() => setBackupToastMessage(null), 5000);
+      }
+    };
+    reader.onerror = () => {
+      setBackupToastMessage('Gagal membaca berkas cadangan dari perangkat.');
+      setTimeout(() => setBackupToastMessage(null), 5000);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   // Add Wallet Modal
   const [showAddWalletModal, setShowAddWalletModal] = useState(false);
@@ -239,7 +274,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col w-full gap-4 pb-12 max-w-lg mx-auto font-sans">
+    <div className="flex flex-col w-full gap-4 pb-12 max-w-md mx-auto font-sans">
       {/* Sub-Tabs Selector */}
       <div className="flex items-center bg-[#151921] p-1 rounded-xl border border-[#28303F]">
         <button
@@ -679,7 +714,15 @@ export const VaultView: React.FC<VaultViewProps> = ({
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-[#28303F]">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-[#28303F]">
+              <input
+                ref={quickFileInputRef}
+                type="file"
+                accept=".json,application/json"
+                onChange={handleQuickFileRestore}
+                className="hidden"
+              />
+
               <button
                 type="button"
                 id="quick-download-backup-btn"
@@ -692,13 +735,23 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     theme,
                   });
                   downloadBackupFile(backupJson);
-                  setBackupToastMessage('Berkas cadangan berhasil diunduh ke perangkat Anda!');
+                  setBackupToastMessage('Berkas cadangan (.JSON) berhasil diunduh ke perangkat Anda!');
                   setTimeout(() => setBackupToastMessage(null), 4000);
                 }}
                 className="px-3 py-2.5 rounded-lg bg-[#FF5E36] hover:bg-[#FF734F] text-white font-mono text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-sm"
               >
                 <span className="material-symbols-outlined text-[16px]">download</span>
-                <span>Simpan / Unduh Berkas</span>
+                <span>Unduh JSON</span>
+              </button>
+
+              <button
+                type="button"
+                id="quick-restore-file-btn"
+                onClick={() => quickFileInputRef.current?.click()}
+                className="px-3 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-sm"
+              >
+                <span className="material-symbols-outlined text-[16px]">upload_file</span>
+                <span>Pulihkan File</span>
               </button>
 
               <button
@@ -707,8 +760,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 onClick={() => setShowBackupModal(true)}
                 className="px-3 py-2.5 rounded-lg bg-[#151921] hover:bg-[#28303F] text-[#F1F5F9] border border-[#28303F] hover:border-[#FF5E36]/60 font-mono text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95"
               >
-                <span className="material-symbols-outlined text-[16px] text-[#FF5E36]">settings_backup_restore</span>
-                <span>Buka Panel Backup &amp; Restore</span>
+                <span className="material-symbols-outlined text-[16px] text-[#FF5E36]">tune</span>
+                <span>Panel Lengkap</span>
               </button>
             </div>
           </div>
@@ -797,6 +850,30 @@ export const VaultView: React.FC<VaultViewProps> = ({
               </button>
             </div>
           </div>
+
+          {/* App Branding & Logo Card */}
+          <div className="bg-[#1C222D] p-4 rounded-xl border border-[#28303F] flex items-center justify-between">
+            <div className="flex items-center gap-3.5">
+              <ReimuLogo size={42} className="rounded-xl border border-[#FF5E36]/30 shadow-md shrink-0" />
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <span className="font-display font-extrabold text-[15px] text-[#F1F5F9]">
+                    ReimuWallet
+                  </span>
+                  <span className="font-mono text-[9px] font-bold text-[#FF5E36] px-1.5 py-0.5 rounded bg-[#2A1711] border border-[#FF5E36]/40 uppercase">
+                    v1.0 Mobile
+                  </span>
+                </div>
+                <span className="font-mono text-[11px] text-[#94A3B8]">
+                  Pencatat Keuangan &amp; Buku Kas Mandiri
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 font-mono text-[10px] text-emerald-400 bg-[#151921] px-2.5 py-1 rounded-lg border border-emerald-500/30 shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+              <span>Aktif</span>
+            </div>
+          </div>
         </div>
       )}
 
@@ -804,19 +881,19 @@ export const VaultView: React.FC<VaultViewProps> = ({
       <BackupRestoreModal
         isOpen={showBackupModal}
         onClose={() => setShowBackupModal(false)}
-        currentData={{
-          wallets,
-          transactions,
-          savingsGoals,
-          userProfile,
-          theme,
-        }}
+        wallets={wallets}
+        transactions={transactions}
+        savingsGoals={savingsGoals}
+        userProfile={userProfile}
+        theme={theme}
         onRestoreConfirmed={(payload) => {
           if (onRestoreBackup) {
             onRestoreBackup(payload);
           }
-          setBackupToastMessage('Data berhasil dipulihkan!');
-          setTimeout(() => setBackupToastMessage(null), 4000);
+          setBackupToastMessage(
+            `Data berhasil dipulihkan! ${payload.transactions.length} transaksi dan ${payload.wallets.length} dompet telah kembali.`
+          );
+          setTimeout(() => setBackupToastMessage(null), 5000);
         }}
       />
 
