@@ -15,7 +15,10 @@ interface NotificationCenterModalProps {
   onConfirmTransaction: (tx: Transaction) => void;
   onInspectTransaction: (tx: Transaction) => void;
   pendingNotifications: Transaction[];
+  rejectedNotifications?: Transaction[];
   onDismissNotification: (id: string) => void;
+  onRestoreRejectedNotification?: (id: string) => void;
+  onDeletePermanently?: (id: string) => void;
   onSimulateNewNotification: (sampleText: string) => void;
 }
 
@@ -26,7 +29,10 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   onConfirmTransaction,
   onInspectTransaction,
   pendingNotifications,
+  rejectedNotifications = [],
   onDismissNotification,
+  onRestoreRejectedNotification,
+  onDeletePermanently,
   onSimulateNewNotification,
 }) => {
   const [inputText, setInputText] = useState(
@@ -38,7 +44,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
       wallets
     )
   );
-  const [activeTab, setActiveTab] = useState<'pending' | 'tester'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'rejected' | 'tester'>('pending');
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [lastAddedTitle, setLastAddedTitle] = useState('');
 
@@ -68,6 +74,8 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
       time: getCurrentTimeString(),
       note: parsedResult.note,
       rawNotification: parsedResult.rawText,
+      source: 'notification',
+      status: 'confirmed',
     };
 
     setLastAddedTitle(`${newTx.title} (Rp ${formatRupiah(newTx.amount)})`);
@@ -128,10 +136,10 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         </div>
 
         {/* Tab Selector */}
-        <div className="flex items-center border-b border-[#28303F] bg-[#151921] px-4 pt-2">
+        <div className="flex items-center border-b border-[#28303F] bg-[#151921] px-4 pt-2 overflow-x-auto">
           <button
             onClick={() => setActiveTab('pending')}
-            className={`pb-2.5 px-3 font-mono text-[12px] font-bold uppercase transition-all relative flex items-center gap-1.5 ${
+            className={`pb-2.5 px-3 font-mono text-[12px] font-bold uppercase transition-all relative flex items-center gap-1.5 shrink-0 ${
               activeTab === 'pending'
                 ? 'text-[#FF5E36] border-b-2 border-[#FF5E36]'
                 : 'text-[#94A3B8] hover:text-white'
@@ -147,8 +155,25 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
           </button>
 
           <button
+            onClick={() => setActiveTab('rejected')}
+            className={`pb-2.5 px-3 font-mono text-[12px] font-bold uppercase transition-all relative flex items-center gap-1.5 shrink-0 ${
+              activeTab === 'rejected'
+                ? 'text-amber-400 border-b-2 border-amber-400'
+                : 'text-[#94A3B8] hover:text-white'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[16px]">history_toggle_off</span>
+            <span>Ditolak / Arsip</span>
+            {rejectedNotifications.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-500/30 text-amber-400 border border-amber-500/40 text-[9px] font-bold">
+                {rejectedNotifications.length}
+              </span>
+            )}
+          </button>
+
+          <button
             onClick={() => setActiveTab('tester')}
-            className={`pb-2.5 px-3 font-mono text-[12px] font-bold uppercase transition-all relative flex items-center gap-1.5 ${
+            className={`pb-2.5 px-3 font-mono text-[12px] font-bold uppercase transition-all relative flex items-center gap-1.5 shrink-0 ${
               activeTab === 'tester'
                 ? 'text-[#FF5E36] border-b-2 border-[#FF5E36]'
                 : 'text-[#94A3B8] hover:text-white'
@@ -257,25 +282,27 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
                         </div>
                       )}
 
-                      {/* Action buttons */}
+                      {/* Action buttons matching Benar / Tidak user confirmation */}
                       <div className="flex items-center justify-end gap-2 pt-1">
                         <button
                           onClick={() => onDismissNotification(tx.id)}
-                          className="px-2.5 py-1 rounded-lg bg-[#151921] hover:bg-[#28303F] text-[#94A3B8] hover:text-white font-mono text-[10px] font-bold uppercase transition-colors border border-[#28303F]"
+                          className="px-2.5 py-1 rounded-lg bg-[#151921] hover:bg-red-500/20 text-red-400 font-mono text-[10px] font-bold uppercase transition-colors border border-[#28303F] hover:border-red-500/40"
+                          title="Tolak transaksi ini (status menjadi rejected)"
                         >
-                          Abaikan
+                          ✕ Tidak (Tolak)
                         </button>
                         <button
                           onClick={() => onInspectTransaction(tx)}
-                          className="px-3 py-1 rounded-lg bg-[#151921] hover:bg-[#28303F] text-white border border-[#28303F] font-mono text-[10px] font-bold uppercase transition-colors"
+                          className="px-2.5 py-1 rounded-lg bg-[#151921] hover:bg-[#28303F] text-white border border-[#28303F] font-mono text-[10px] font-bold uppercase transition-colors"
                         >
-                          Periksa & Edit
+                          Periksa
                         </button>
                         <button
                           onClick={() => onConfirmTransaction(tx)}
-                          className="px-3.5 py-1 rounded-lg bg-[#FF5E36] hover:bg-[#ff724f] text-white font-mono text-[10px] font-bold uppercase transition-all active:scale-95"
+                          className="px-3.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-[10px] font-bold uppercase transition-all active:scale-95 shadow-[0_0_10px_rgba(16,185,129,0.3)]"
+                          title="Konfirmasi transaksi ini (status menjadi confirmed, update saldo & history)"
                         >
-                          Terima & Catat
+                          ✓ Benar (Konfirmasi)
                         </button>
                       </div>
                     </div>
@@ -308,7 +335,110 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
             </div>
           )}
 
-          {/* TAB 2: PARSER TESTER & SIMULATOR */}
+          {/* TAB 2: REJECTED & ARCHIVED NOTIFICATIONS */}
+          {activeTab === 'rejected' && (
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] text-[#94A3B8] uppercase font-bold">
+                  Riwayat Notifikasi Ditolak ({rejectedNotifications.length})
+                </span>
+                <span className="font-mono text-[10px] text-amber-400/80">
+                  Dapat dipulihkan sewaktu-waktu
+                </span>
+              </div>
+
+              {rejectedNotifications.length === 0 ? (
+                <div className="py-8 px-4 text-center rounded-xl bg-[#1C222D] border border-[#28303F] flex flex-col items-center gap-2">
+                  <div className="w-10 h-10 rounded-full bg-[#151921] flex items-center justify-center text-[#94A3B8]">
+                    <span className="material-symbols-outlined text-[22px]">history_toggle_off</span>
+                  </div>
+                  <span className="font-mono text-[13px] text-[#F1F5F9] font-bold">Tidak Ada Notifikasi Ditolak</span>
+                  <p className="font-body-sm text-[11px] text-[#94A3B8] max-w-xs">
+                    Semua transaksi mutasi yang Anda tolak (klik ✕ Tidak) akan disimpan di sini agar aman dan bisa dipulihkan kembali ke Buku Kas jika tidak sengaja tertolak.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2.5">
+                  {rejectedNotifications.map((tx) => (
+                    <div
+                      key={tx.id}
+                      className="p-3.5 rounded-xl bg-[#1C222D]/70 border border-[#28303F] hover:border-amber-500/40 transition-all flex flex-col gap-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                            <span className="material-symbols-outlined text-[18px]">block</span>
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold uppercase tracking-wider">
+                                Ditolak Pengguna
+                              </span>
+                              <span className="font-mono text-[10px] text-[#94A3B8] uppercase">
+                                {tx.wallet} • {tx.time || tx.date}
+                              </span>
+                            </div>
+                            <span className="font-body-md text-[13px] font-bold text-[#E2E8F0] truncate line-through opacity-80">
+                              {tx.title}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col items-end">
+                          <span className="font-mono text-[14px] font-bold text-[#94A3B8] line-through">
+                            Rp {formatRupiah(tx.amount)}
+                          </span>
+                          <span className="font-mono text-[9px] text-[#64748B] uppercase">
+                            {tx.category}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Raw notification snippet */}
+                      {tx.rawNotification && (
+                        <div className="p-2 rounded-lg bg-[#151921] border border-[#28303F] font-mono text-[10px] text-[#94A3B8] italic leading-relaxed">
+                          {tx.rawNotification}
+                        </div>
+                      )}
+
+                      {/* Recovery Actions */}
+                      <div className="flex items-center justify-between pt-1 border-t border-[#28303F]/60">
+                        <button
+                          onClick={() => {
+                            if (onDeletePermanently) {
+                              onDeletePermanently(tx.id);
+                            }
+                          }}
+                          className="px-2.5 py-1 rounded-lg hover:bg-red-500/20 text-red-400/80 hover:text-red-300 font-mono text-[10px] font-bold uppercase transition-colors"
+                          title="Hapus permanen dari penyimpanan"
+                        >
+                          Hapus Permanen
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            if (onRestoreRejectedNotification) {
+                              onRestoreRejectedNotification(tx.id);
+                              setLastAddedTitle(`${tx.title} (Rp ${formatRupiah(tx.amount)})`);
+                              setShowSuccessToast(true);
+                              setTimeout(() => setShowSuccessToast(false), 2800);
+                            }
+                          }}
+                          className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-[10px] font-bold uppercase transition-all active:scale-95 shadow-[0_0_10px_rgba(16,185,129,0.3)] flex items-center gap-1.5"
+                          title="Pulihkan transaksi ini menjadi status Confirmed dan update saldo dompet"
+                        >
+                          <span className="material-symbols-outlined text-[13px]">restore</span>
+                          <span>Pulihkan ke Buku Kas</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 3: PARSER TESTER & SIMULATOR */}
           {activeTab === 'tester' && (
             <div className="flex flex-col gap-3">
               {/* Presets Grid */}

@@ -1,4 +1,5 @@
 import { TransactionType } from '../../../types/transaction';
+import { extractRupiahAmount } from '../../../utils/currency';
 import { ParsedNotificationResult } from './dana';
 
 export function parseGopayNotification(title: string, text: string): ParsedNotificationResult | null {
@@ -14,11 +15,8 @@ export function parseGopayNotification(title: string, text: string): ParsedNotif
 
   if (!isGoPay) return null;
 
-  const amountMatch = content.match(/Rp\s*([0-9.]+)/i);
-  if (!amountMatch) return null;
-
-  const rawAmountStr = amountMatch[1].replace(/\./g, '');
-  const amount = parseInt(rawAmountStr, 10);
+  // Strictly extract amount only from Rp or IDR formats
+  const amount = extractRupiahAmount(content);
   if (!amount || amount <= 0) return null;
 
   let type: TransactionType = 'expense';

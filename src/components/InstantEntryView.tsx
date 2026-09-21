@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TransactionType, Transaction, Wallet } from '../types';
+import { TransactionType, Transaction, Wallet, PresetItem } from '../types';
 import { CATEGORY_OPTIONS, formatRupiah } from '../data/mockData';
 import { getTodayDateString, getCurrentTimeString, formatDisplayDate } from '../utils/dateUtils';
 import { formatCurrencyInput } from '../utils/currencyUtils';
@@ -13,22 +13,7 @@ interface InstantEntryViewProps {
   onCancel: () => void;
 }
 
-interface PresetItem {
-  id: string;
-  title: string;
-  amount: number;
-  category: string;
-  type: TransactionType;
-  walletName?: string;
-}
-
-const DEFAULT_PRESETS: PresetItem[] = [
-  { id: 'p-1', title: 'Makan Siang', amount: 25000, category: 'Food', type: 'expense' },
-  { id: 'p-2', title: 'Kopi Kenangan', amount: 18000, category: 'Food', type: 'expense' },
-  { id: 'p-3', title: 'Ongkos Transport', amount: 15000, category: 'Transit', type: 'expense' },
-  { id: 'p-4', title: 'Sedekah / Donasi', amount: 50000, category: 'Others', type: 'expense' },
-  { id: 'p-5', title: 'Proyek Lepas', amount: 500000, category: 'Income', type: 'income' },
-];
+const PRESETS_STORAGE_KEY = 'reimu_custom_presets_v1';
 
 export const InstantEntryView: React.FC<InstantEntryViewProps> = ({
   wallets,
@@ -62,9 +47,35 @@ export const InstantEntryView: React.FC<InstantEntryViewProps> = ({
   const [hasReceipt, setHasReceipt] = useState(false);
   const [isSavedAnimating, setIsSavedAnimating] = useState(false);
 
-  // Preset management modal
-  const [presets, setPresets] = useState<PresetItem[]>(DEFAULT_PRESETS);
+  // Preset management modal (Default kosong, tersimpan di localStorage)
+  const [presets, setPresets] = useState<PresetItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(PRESETS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to load presets from localStorage', e);
+    }
+    return []; // Default kosong sesuai permintaan user
+  });
+
   const [showPresetModal, setShowPresetModal] = useState(false);
+  const [showAddPresetForm, setShowAddPresetForm] = useState(false);
+  const [newPresetTitle, setNewPresetTitle] = useState('');
+  const [newPresetAmount, setNewPresetAmount] = useState('');
+  const [newPresetCategory, setNewPresetCategory] = useState('Food');
+  const [newPresetType, setNewPresetType] = useState<TransactionType>('expense');
+
+  // Simpan preset setiap kali berubah
+  useEffect(() => {
+    try {
+      localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets));
+    } catch (e) {
+      console.warn('Failed to save presets to localStorage', e);
+    }
+  }, [presets]);
 
   // Notification Auto-Fill Modal
   const [showNotifModal, setShowNotifModal] = useState(false);
@@ -151,23 +162,74 @@ export const InstantEntryView: React.FC<InstantEntryViewProps> = ({
     setPresets((prev) => prev.filter((p) => p.id !== id));
   };
 
+  const handleAddNewPreset = () => {
+    const cleanTitle = newPresetTitle.trim();
+    const amountVal = parseInt(newPresetAmount.replace(/\D/g, '') || '0', 10);
+    if (!cleanTitle) {
+      alert('Harap masukkan judul template.');
+      return;
+    }
+    if (amountVal <= 0) {
+      alert('Harap masukkan nominal template yang valid.');
+      return;
+    }
+
+    const newPreset: PresetItem = {
+      id: 'preset-' + Date.now(),
+      title: cleanTitle,
+      amount: amountVal,
+      category: newPresetCategory,
+      type: newPresetType,
+    };
+
+    setPresets((prev) => [newPreset, ...prev]);
+    setNewPresetTitle('');
+    setNewPresetAmount('');
+    setShowAddPresetForm(false);
+  };
+
+  const handleSaveCurrentAsPreset = () => {
+    const cleanTitle = title.trim() || selectedCategory;
+    if (amountNum <= 0) {
+      alert('Isi nominal di formulir terlebih dahulu untuk disimpan sebagai template.');
+      return;
+    }
+
+    const newPreset: PresetItem = {
+      id: 'preset-' + Date.now(),
+      title: cleanTitle,
+      amount: amountNum,
+      category: selectedCategory,
+      type: entryType,
+    };
+
+    setPresets((prev) => [newPreset, ...prev]);
+    alert(`Template "${cleanTitle}" (Rp ${formatRupiah(amountNum)}) berhasil disimpan!`);
+  };
+
   const handleSaveTransaction = () => {
     if (amountNum <= 0) {
       alert('Harap masukkan nominal transaksi yang valid.');
       return;
     }
 
-    if (!activeWallet) {
+    const walletName = activeWallet ? activeWallet.name : 'Dompet Tunai';
+
+    if (!activeWallet && wallets.length > 0) {
       alert('Harap pilih dompet asal yang valid.');
       return;
     }
 
     if (entryType === 'transfer') {
+      if (wallets.length < 2) {
+        alert('Diperlukan minimal 2 dompet terdaftar di Brankas untuk melakukan transfer.');
+        return;
+      }
       if (!activeDestWallet) {
         alert('Harap pilih dompet tujuan untuk transfer.');
         return;
       }
-      if (activeDestWallet.id === activeWallet.id) {
+      if (activeDestWallet.id === activeWallet?.id) {
         alert('Dompet asal dan tujuan harus berbeda.');
         return;
       }
@@ -183,7 +245,7 @@ export const InstantEntryView: React.FC<InstantEntryViewProps> = ({
       category: entryType === 'transfer' ? 'Transfer' : selectedCategory,
       type: entryType,
       amount: amountNum,
-      wallet: activeWallet.name,
+      wallet: walletName,
       targetWallet: entryType === 'transfer' ? activeDestWallet?.name : undefined,
       date: selectedDate,
       time: selectedTime,
@@ -226,10 +288,15 @@ export const InstantEntryView: React.FC<InstantEntryViewProps> = ({
             onClick={() => setShowPresetModal(true)}
             aria-label="Template Presets"
             type="button"
-            className="w-10 h-10 rounded-lg flex items-center justify-center bg-[#141414] text-[#888888] hover:text-white hover:bg-[#1C1C1C] active:scale-95 transition-all border border-[#262626]"
+            className="w-10 h-10 rounded-lg flex items-center justify-center bg-[#141414] text-[#888888] hover:text-white hover:bg-[#1C1C1C] active:scale-95 transition-all border border-[#262626] relative"
             title="Template & Preset Cepat"
           >
             <span className="material-symbols-outlined text-[20px]">bookmark</span>
+            {presets.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#FF3E00] text-white font-mono text-[9px] font-bold flex items-center justify-center shadow-sm">
+                {presets.length}
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -476,42 +543,63 @@ export const InstantEntryView: React.FC<InstantEntryViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
-          {wallets.map((w) => {
-            const isSelected = selectedWalletId === w.id;
-            return (
-              <button
-                key={w.id}
-                type="button"
-                onClick={() => setSelectedWalletId(w.id)}
-                className={`p-3 rounded-xl border flex flex-col items-start gap-1 min-w-[130px] shrink-0 text-left transition-all ${
-                  isSelected
-                    ? 'bg-[#24120C] border-[#FF3E00] shadow-[0_0_10px_rgba(255,62,0,0.25)]'
-                    : 'bg-[#121212] border-[#262626] hover:border-[#383838]'
-                }`}
-              >
-                <div className="flex items-center justify-between w-full">
-                  <span
-                    className={`material-symbols-outlined text-[18px] ${
-                      isSelected ? 'text-[#FF3E00]' : 'text-[#888888]'
-                    }`}
-                  >
-                    {w.icon || 'account_balance_wallet'}
-                  </span>
-                  {w.isPrimary && (
-                    <span className="font-mono text-[8px] px-1 py-0.2 rounded bg-[#1F1F1F] text-[#AAAAAA] uppercase">
-                      Utama
-                    </span>
-                  )}
+          {wallets.length === 0 ? (
+            <div className="w-full p-3.5 rounded-xl bg-[#141414] border border-[#28303F] flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-lg bg-[#24120C] border border-[#FF3E00]/40 flex items-center justify-center text-[#FF3E00] shrink-0">
+                  <span className="material-symbols-outlined text-[18px]">payments</span>
                 </div>
-                <span className="font-mono text-[12px] font-bold text-white truncate max-w-full mt-1">
-                  {w.name}
-                </span>
-                <span className="font-mono text-[10px] text-[#888888]">
-                  Rp {formatRupiah(w.balance)}
-                </span>
-              </button>
-            );
-          })}
+                <div className="flex flex-col min-w-0">
+                  <span className="font-mono text-[12px] font-bold text-white truncate">
+                    Dompet Tunai
+                  </span>
+                  <span className="font-mono text-[10px] text-[#888888]">
+                    Dibuat otomatis sebagai dompet utama
+                  </span>
+                </div>
+              </div>
+              <span className="font-mono text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded shrink-0">
+                Otomatis
+              </span>
+            </div>
+          ) : (
+            wallets.map((w) => {
+              const isSelected = selectedWalletId === w.id;
+              return (
+                <button
+                  key={w.id}
+                  type="button"
+                  onClick={() => setSelectedWalletId(w.id)}
+                  className={`p-3 rounded-xl border flex flex-col items-start gap-1 min-w-[130px] shrink-0 text-left transition-all ${
+                    isSelected
+                      ? 'bg-[#24120C] border-[#FF3E00] shadow-[0_0_10px_rgba(255,62,0,0.25)]'
+                      : 'bg-[#121212] border-[#262626] hover:border-[#383838]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span
+                      className={`material-symbols-outlined text-[18px] ${
+                        isSelected ? 'text-[#FF3E00]' : 'text-[#888888]'
+                      }`}
+                    >
+                      {w.icon || 'account_balance_wallet'}
+                    </span>
+                    {w.isPrimary && (
+                      <span className="font-mono text-[8px] px-1 py-0.2 rounded bg-[#1F1F1F] text-[#AAAAAA] uppercase">
+                        Utama
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-mono text-[12px] font-bold text-white truncate max-w-full mt-1">
+                    {w.name}
+                  </span>
+                  <span className="font-mono text-[10px] text-[#888888]">
+                    Rp {formatRupiah(w.balance)}
+                  </span>
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -588,6 +676,17 @@ export const InstantEntryView: React.FC<InstantEntryViewProps> = ({
             </span>
             <span className="font-mono text-[11px]">Lampirkan Bukti Pembayaran</span>
           </button>
+
+          {/* Save current form as template button */}
+          <button
+            type="button"
+            onClick={handleSaveCurrentAsPreset}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#181818] hover:bg-[#222222] border border-[#2E2E2E] hover:border-[#FF3E00]/50 text-[#AAAAAA] hover:text-[#FF3E00] font-mono text-[10px] font-bold transition-all"
+            title="Simpan data formulir saat ini ke dalam Template Cepat"
+          >
+            <span className="material-symbols-outlined text-[14px]">bookmark_add</span>
+            <span>Jadikan Template</span>
+          </button>
         </div>
       </div>
 
@@ -618,25 +717,142 @@ export const InstantEntryView: React.FC<InstantEntryViewProps> = ({
         subtitle="PILIH TANGGAL UNTUK CATATAN"
       />
 
-      {/* Preset Modal with DELETE FEATURE */}
+      {/* Preset Modal with ADD & DELETE FEATURE */}
       {showPresetModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#121212] border border-[#2E2E2E] rounded-2xl w-full max-w-sm overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.8)] flex flex-col font-sans">
+          <div className="bg-[#121212] border border-[#2E2E2E] rounded-2xl w-full max-w-sm overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.8)] flex flex-col font-sans animate-in fade-in zoom-in-95 duration-150">
+            {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-[#242424] bg-[#161616]">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-[#FF3E00] text-[20px]">bookmark</span>
                 <span className="font-mono text-[14px] font-bold text-white uppercase">
                   Template Cepat
                 </span>
+                <span className="font-mono text-[10px] text-[#888888] bg-[#222222] px-1.5 py-0.5 rounded">
+                  {presets.length}
+                </span>
               </div>
-              <button
-                onClick={() => setShowPresetModal(false)}
-                className="w-7 h-7 rounded-lg flex items-center justify-center text-[#888888] hover:text-white"
-              >
-                <span className="material-symbols-outlined text-[18px]">close</span>
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setShowAddPresetForm(!showAddPresetForm)}
+                  className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold flex items-center gap-1 transition-all ${
+                    showAddPresetForm
+                      ? 'bg-[#2E2E2E] text-white'
+                      : 'bg-[#24120C] text-[#FF3E00] border border-[#FF3E00]/40 hover:bg-[#341810]'
+                  }`}
+                  title="Tambah Template Baru"
+                >
+                  <span className="material-symbols-outlined text-[14px]">
+                    {showAddPresetForm ? 'remove' : 'add'}
+                  </span>
+                  <span>{showAddPresetForm ? 'Tutup' : 'Tambah'}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setShowPresetModal(false);
+                    setShowAddPresetForm(false);
+                  }}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-[#888888] hover:text-white"
+                >
+                  <span className="material-symbols-outlined text-[18px]">close</span>
+                </button>
+              </div>
             </div>
 
+            {/* Form Tambah Template Baru */}
+            {showAddPresetForm && (
+              <div className="p-3.5 bg-[#181818] border-b border-[#262626] flex flex-col gap-2.5 animate-in slide-in-from-top duration-150">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[10px] text-[#FF3E00] uppercase font-bold tracking-wider">
+                    Form Tambah Template
+                  </span>
+                  {/* Tipe Transaksi Template */}
+                  <div className="flex rounded-lg bg-[#111111] p-0.5 border border-[#2A2A2A]">
+                    <button
+                      type="button"
+                      onClick={() => setNewPresetType('expense')}
+                      className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${
+                        newPresetType === 'expense'
+                          ? 'bg-[#FF3E00] text-white'
+                          : 'text-[#888888]'
+                      }`}
+                    >
+                      Keluar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewPresetType('income')}
+                      className={`px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase ${
+                        newPresetType === 'income'
+                          ? 'bg-[#FF3E00] text-white'
+                          : 'text-[#888888]'
+                      }`}
+                    >
+                      Masuk
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <input
+                    type="text"
+                    value={newPresetTitle}
+                    onChange={(e) => setNewPresetTitle(e.target.value)}
+                    placeholder="Nama Template (cth. Makan Siang, Bensin)..."
+                    className="bg-[#121212] border border-[#2A2A2A] focus:border-[#FF3E00] rounded-xl px-3 py-2 text-white font-sans text-[12px] focus:outline-none placeholder-[#555555]"
+                  />
+
+                  <div className="flex gap-2">
+                    <div className="flex-1 flex items-center bg-[#121212] border border-[#2A2A2A] focus-within:border-[#FF3E00] rounded-xl px-3 py-2">
+                      <span className="font-mono text-[11px] text-[#777777] mr-1">Rp</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={newPresetAmount}
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, '');
+                          setNewPresetAmount(digits ? formatRupiah(parseInt(digits, 10)) : '');
+                        }}
+                        placeholder="Nominal..."
+                        className="w-full bg-transparent text-white font-mono text-[12px] focus:outline-none placeholder-[#555555]"
+                      />
+                    </div>
+
+                    <select
+                      value={newPresetCategory}
+                      onChange={(e) => setNewPresetCategory(e.target.value)}
+                      className="w-28 bg-[#121212] border border-[#2A2A2A] text-[#CCCCCC] font-mono text-[11px] rounded-xl px-2 py-2 focus:outline-none"
+                    >
+                      {CATEGORY_OPTIONS.map((c) => (
+                        <option key={c.name} value={c.name} className="bg-[#181818] text-white">
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddPresetForm(false)}
+                      className="flex-1 py-1.5 rounded-lg bg-[#222222] hover:bg-[#2A2A2A] text-[#888888] font-mono text-[11px] font-bold uppercase"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddNewPreset}
+                      className="flex-1 py-1.5 rounded-lg bg-[#FF3E00] hover:bg-[#ff551c] text-white font-mono text-[11px] font-bold uppercase shadow-sm"
+                    >
+                      Simpan Template
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* List Template */}
             <div className="p-4 flex flex-col gap-2 max-h-80 overflow-y-auto">
               {presets.map((p) => (
                 <div
@@ -644,19 +860,27 @@ export const InstantEntryView: React.FC<InstantEntryViewProps> = ({
                   onClick={() => handleApplyPreset(p)}
                   className="p-3 rounded-xl bg-[#181818] hover:bg-[#202020] border border-[#2A2A2A] hover:border-[#FF3E00] flex items-center justify-between cursor-pointer transition-all group"
                 >
-                  <div className="flex flex-col">
-                    <span className="font-mono text-[12px] font-bold text-white group-hover:text-[#FF3E00]">
-                      {p.title}
-                    </span>
-                    <span className="font-mono text-[10px] text-[#888888]">
-                      Rp {formatRupiah(p.amount)} • {p.category}
-                    </span>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-[#24120C] border border-[#FF3E00]/30 flex items-center justify-center text-[#FF3E00] shrink-0">
+                      <span className="material-symbols-outlined text-[16px]">
+                        {p.type === 'income' ? 'arrow_downward' : 'arrow_upward'}
+                      </span>
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-mono text-[12px] font-bold text-white group-hover:text-[#FF3E00] truncate">
+                        {p.title}
+                      </span>
+                      <span className="font-mono text-[10px] text-[#888888]">
+                        Rp {formatRupiah(p.amount)} • {p.category}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Delete Preset Button */}
                   <button
+                    type="button"
                     onClick={(e) => handleDeletePreset(p.id, e)}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-[#666666] hover:text-[#FF4D4D] hover:bg-[#2C1818] transition-colors"
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-[#666666] hover:text-[#FF4D4D] hover:bg-[#2C1818] transition-colors shrink-0 ml-2"
                     title="Hapus template"
                   >
                     <span className="material-symbols-outlined text-[16px]">delete</span>
@@ -665,8 +889,24 @@ export const InstantEntryView: React.FC<InstantEntryViewProps> = ({
               ))}
 
               {presets.length === 0 && (
-                <div className="text-center py-6 text-[#666666] font-mono text-[11px] uppercase">
-                  Tidak ada template tersimpan
+                <div className="text-center py-8 px-4 flex flex-col items-center justify-center gap-2">
+                  <div className="w-10 h-10 rounded-xl bg-[#1A1A1A] border border-[#2A2A2A] flex items-center justify-center text-[#666666]">
+                    <span className="material-symbols-outlined text-[20px]">bookmark_border</span>
+                  </div>
+                  <span className="font-mono text-[12px] font-bold text-[#AAAAAA]">
+                    Belum Ada Template Cepat
+                  </span>
+                  <p className="font-mono text-[10px] text-[#666666] max-w-[240px] leading-relaxed">
+                    Template default dibiarkan kosong. Anda dapat menambahkan template baru dengan tombol di atas atau klik &quot;Jadikan Template&quot; di bawah formulir.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddPresetForm(true)}
+                    className="mt-2 px-3 py-1.5 rounded-lg bg-[#24120C] border border-[#FF3E00]/40 text-[#FF3E00] font-mono text-[10px] font-bold uppercase flex items-center gap-1 hover:bg-[#341810]"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">add</span>
+                    <span>Tambah Template Pertama</span>
+                  </button>
                 </div>
               )}
             </div>

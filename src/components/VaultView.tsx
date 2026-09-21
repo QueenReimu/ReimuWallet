@@ -8,6 +8,7 @@ import {
   BackupDataPayload,
   generateBackupJson,
   downloadBackupFile,
+  shareOrSaveBackupFile,
   validateBackupJson,
 } from '../utils/backupUtils';
 import {
@@ -15,6 +16,7 @@ import {
   parseCurrencyInput,
   formatRupiahDisplay,
 } from '../utils/currencyUtils';
+import { DEFAULT_AUTO_APPROVE_WHITELIST } from '../utils/notificationParser';
 
 interface VaultViewProps {
   wallets: Wallet[];
@@ -35,6 +37,12 @@ interface VaultViewProps {
   onNavigateToLedger?: () => void;
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
+  isNotificationPermissionGranted?: boolean;
+  onOpenAndroidPermissionModal?: () => void;
+  onSimulateDanaTransaction?: (text: string) => void;
+  onOpenNotificationCenter?: () => void;
+  rejectedCount?: number;
+  pendingCount?: number;
 }
 
 export const VaultView: React.FC<VaultViewProps> = ({
@@ -56,9 +64,58 @@ export const VaultView: React.FC<VaultViewProps> = ({
   onNavigateToLedger,
   theme = 'dark',
   onToggleTheme,
+  isNotificationPermissionGranted = false,
+  onOpenAndroidPermissionModal,
+  onSimulateDanaTransaction,
+  onOpenNotificationCenter,
+  rejectedCount = 0,
+  pendingCount = 0,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'wallets' | 'settings'>('wallets');
   const [isNotificationServiceActive, setIsNotificationServiceActive] = useState(true);
+
+  // Auto-Approve Whitelist State
+  const [isAutoApproveEnabled, setIsAutoApproveEnabled] = useState<boolean>(() => {
+    return localStorage.getItem('reimu_auto_approve_enabled') === 'true';
+  });
+  const [autoApproveWhitelist, setAutoApproveWhitelist] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('reimu_auto_approve_whitelist');
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return DEFAULT_AUTO_APPROVE_WHITELIST;
+  });
+  const [newKeywordInput, setNewKeywordInput] = useState('');
+
+  const handleToggleAutoApprove = () => {
+    const next = !isAutoApproveEnabled;
+    setIsAutoApproveEnabled(next);
+    localStorage.setItem('reimu_auto_approve_enabled', String(next));
+  };
+
+  const handleAddWhitelistKeyword = (keywordToAdd?: string) => {
+    const kw = (keywordToAdd !== undefined ? keywordToAdd : newKeywordInput).trim();
+    if (!kw) return;
+    if (autoApproveWhitelist.some((k) => k.toLowerCase() === kw.toLowerCase())) {
+      setNewKeywordInput('');
+      return;
+    }
+    const updated = [...autoApproveWhitelist, kw];
+    setAutoApproveWhitelist(updated);
+    localStorage.setItem('reimu_auto_approve_whitelist', JSON.stringify(updated));
+    setNewKeywordInput('');
+  };
+
+  const handleRemoveWhitelistKeyword = (kw: string) => {
+    const updated = autoApproveWhitelist.filter((k) => k.toLowerCase() !== kw.toLowerCase());
+    setAutoApproveWhitelist(updated);
+    localStorage.setItem('reimu_auto_approve_whitelist', JSON.stringify(updated));
+  };
+
+  const handleResetWhitelist = () => {
+    setAutoApproveWhitelist(DEFAULT_AUTO_APPROVE_WHITELIST);
+    localStorage.setItem('reimu_auto_approve_whitelist', JSON.stringify(DEFAULT_AUTO_APPROVE_WHITELIST));
+  };
 
   // Backup & Restore Modal State
   const [showBackupModal, setShowBackupModal] = useState(false);
@@ -718,7 +775,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
               <input
                 ref={quickFileInputRef}
                 type="file"
-                accept=".json,application/json"
+                accept=".json,application/json,text/plain,text/*"
                 onChange={handleQuickFileRestore}
                 className="hidden"
               />
@@ -726,7 +783,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
               <button
                 type="button"
                 id="quick-download-backup-btn"
-                onClick={() => {
+                onClick={async () => {
                   const backupJson = generateBackupJson({
                     wallets,
                     transactions,
@@ -734,8 +791,16 @@ export const VaultView: React.FC<VaultViewProps> = ({
                     userProfile,
                     theme,
                   });
-                  downloadBackupFile(backupJson);
-                  setBackupToastMessage('Berkas cadangan (.JSON) berhasil diunduh ke perangkat Anda!');
+                  const res = await shareOrSaveBackupFile(backupJson);
+                  if (res.success) {
+                    setBackupToastMessage(
+                      res.method === 'share'
+                        ? 'Dialog simpan / bagikan berkas dibuka!'
+                        : 'Berkas cadangan (.JSON) berhasil diunduh ke perangkat Anda!'
+                    );
+                  } else {
+                    setBackupToastMessage(res.error || 'Gagal menyimpan berkas di perangkat.');
+                  }
                   setTimeout(() => setBackupToastMessage(null), 4000);
                 }}
                 className="px-3 py-2.5 rounded-lg bg-[#FF5E36] hover:bg-[#FF734F] text-white font-mono text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-sm"
@@ -766,7 +831,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
             </div>
           </div>
 
-          {/* Automatic Transaction Detection Card with Testing Lab */}
+          {/* Automatic Transaction Detection Card with Permission Status & Android Redirection */}
           <div className="bg-[#1C222D] p-4 rounded-xl border border-[#28303F] flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -775,39 +840,270 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 </div>
                 <div className="flex flex-col">
                   <span className="font-body-md text-[14px] font-bold text-[#F1F5F9]">Deteksi Transaksi Otomatis</span>
-                  <span className="font-mono text-[11px] text-[#94A3B8]">Baca SMS perbankan &amp; notifikasi e-wallet</span>
+                  <span className="font-mono text-[11px] text-[#94A3B8]">Baca SMS perbankan &amp; notifikasi e-wallet DANA, GoPay</span>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setIsNotificationServiceActive(!isNotificationServiceActive)}
+                onClick={() => {
+                  if (!isNotificationPermissionGranted) {
+                    // Redirect to settings permission modal if not yet allowed!
+                    if (onOpenAndroidPermissionModal) onOpenAndroidPermissionModal();
+                  } else {
+                    setIsNotificationServiceActive(!isNotificationServiceActive);
+                  }
+                }}
                 className={`w-12 h-6 rounded-full transition-colors relative ${
-                  isNotificationServiceActive ? 'bg-[#FF5E36]' : 'bg-[#28303F]'
+                  isNotificationServiceActive && isNotificationPermissionGranted ? 'bg-[#FF5E36]' : 'bg-[#28303F]'
                 }`}
               >
                 <div
                   className={`w-5 h-5 rounded-full bg-white transition-transform ${
-                    isNotificationServiceActive ? 'translate-x-6' : 'translate-x-0.5'
+                    isNotificationServiceActive && isNotificationPermissionGranted ? 'translate-x-6' : 'translate-x-0.5'
                   }`}
                 ></div>
               </button>
             </div>
 
+            {/* Permission Status Banner & Android Settings Redirection */}
+            <div
+              className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                isNotificationPermissionGranted
+                  ? 'bg-emerald-500/10 border-emerald-500/30'
+                  : 'bg-amber-500/10 border-amber-500/30'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span
+                  className={`material-symbols-outlined text-[20px] shrink-0 ${
+                    isNotificationPermissionGranted ? 'text-emerald-400' : 'text-amber-400'
+                  }`}
+                >
+                  {isNotificationPermissionGranted ? 'verified_user' : 'lock_open'}
+                </span>
+                <div className="flex flex-col">
+                  <span className="font-mono text-[11px] font-bold uppercase text-white">
+                    {isNotificationPermissionGranted
+                      ? 'Izin Akses Android: Aktif (Di-Allow)'
+                      : 'Izin Akses Android: Belum Diizinkan'}
+                  </span>
+                  <span className="font-body-sm text-[11px] text-[#94A3B8]">
+                    {isNotificationPermissionGranted
+                      ? 'Sistem siap menangkap mutasi DANA & SMS otomatis'
+                      : 'Wajib mengizinkan Akses Notifikasi di Pengaturan HP'}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={onOpenAndroidPermissionModal}
+                className={`px-3 py-1.5 rounded-lg font-mono text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all active:scale-95 shrink-0 ${
+                  isNotificationPermissionGranted
+                    ? 'bg-[#151921] hover:bg-[#28303F] text-emerald-300 border border-emerald-500/30'
+                    : 'bg-[#FF5E36] hover:bg-[#E04822] text-white shadow-[0_0_10px_rgba(255,94,54,0.3)]'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[14px]">
+                  {isNotificationPermissionGranted ? 'check_circle' : 'settings'}
+                </span>
+                <span>{isNotificationPermissionGranted ? 'Pengaturan Izin' : 'Buka Pengaturan (Allow)'}</span>
+              </button>
+            </div>
+
             {/* Test Detection Action Row */}
-            <div className="pt-2 border-t border-[#28303F] flex items-center justify-between">
+            <div className="pt-2 border-t border-[#28303F] flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 font-mono text-[10px] text-[#94A3B8]">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                 <span>BCA, Mandiri, BRI, DANA, GoPay, OVO, ShopeePay</span>
               </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onOpenAndroidPermissionModal}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/40 font-mono text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[15px]">play_circle</span>
+                  <span>Uji Live DANA</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDetectionTesterModal(true)}
+                  className="px-3 py-1.5 rounded-lg bg-[#2A1711] hover:bg-[#3d1e15] text-[#FF5E36] border border-[#FF5E36]/40 font-mono text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[15px]">science</span>
+                  <span>Katalog SMS &amp; Tester</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Smart Detection: Auto-Approve Whitelist Card */}
+          <div className="bg-[#121212] p-4 rounded-xl border border-[#262626] flex flex-col gap-3.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-[#181818] border border-[#333333] flex items-center justify-center text-emerald-400">
+                  <span className="material-symbols-outlined text-[20px]">task_alt</span>
+                </div>
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-2">
+                    <span className="font-body-md text-[14px] font-bold text-white">
+                      Konfirmasi Otomatis (Auto-Approve)
+                    </span>
+                    <span
+                      className={`font-mono text-[9px] px-1.5 py-0.5 rounded font-bold uppercase ${
+                        isAutoApproveEnabled
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                          : 'bg-[#222222] text-[#888888] border border-[#333333]'
+                      }`}
+                    >
+                      {isAutoApproveEnabled ? 'Aktif' : 'Nonaktif'}
+                    </span>
+                  </div>
+                  <span className="font-body-sm text-[12px] text-[#888888]">
+                    Transaksi dari merchant/kata kunci di bawah langsung disetujui otomatis ke buku kas.
+                  </span>
+                </div>
+              </div>
+
+              {/* Toggle Switch */}
               <button
                 type="button"
-                onClick={() => setShowDetectionTesterModal(true)}
-                className="px-3 py-1.5 rounded-lg bg-[#2A1711] hover:bg-[#3d1e15] text-[#FF5E36] border border-[#FF5E36]/40 font-mono text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95"
+                onClick={handleToggleAutoApprove}
+                className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
+                  isAutoApproveEnabled ? 'bg-emerald-500' : 'bg-[#28303F]'
+                }`}
+                title={isAutoApproveEnabled ? 'Nonaktifkan Auto-Approve' : 'Aktifkan Auto-Approve'}
               >
-                <span className="material-symbols-outlined text-[15px]">science</span>
-                <span>Uji Deteksi &amp; SMS</span>
+                <div
+                  className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                    isAutoApproveEnabled ? 'translate-x-6' : 'translate-x-0.5'
+                  }`}
+                />
               </button>
             </div>
+
+            {/* Keyword Whitelist Management */}
+            <div className="flex flex-col gap-2.5 pt-2 border-t border-[#222222]">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[10px] uppercase font-bold text-[#AAAAAA]">
+                  Daftar Kata Kunci / Merchant Whitelist ({autoApproveWhitelist.length}):
+                </span>
+                <button
+                  type="button"
+                  onClick={handleResetWhitelist}
+                  className="font-mono text-[10px] text-[#888888] hover:text-[#CCCCCC] underline"
+                >
+                  Reset ke Standar
+                </button>
+              </div>
+
+              {/* Active Chip Tags */}
+              <div className="flex flex-wrap gap-1.5">
+                {autoApproveWhitelist.map((keyword) => (
+                  <span
+                    key={keyword}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#1A1A1A] border border-[#333333] font-mono text-[11px] text-[#DDDDDD] font-medium"
+                  >
+                    <span>{keyword}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveWhitelistKeyword(keyword)}
+                      className="text-[#888888] hover:text-red-400 font-bold transition-colors ml-0.5"
+                      title={`Hapus ${keyword} dari whitelist`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+
+              {/* Add Custom Keyword Input */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleAddWhitelistKeyword();
+                }}
+                className="flex items-center gap-2 mt-1"
+              >
+                <input
+                  type="text"
+                  value={newKeywordInput}
+                  onChange={(e) => setNewKeywordInput(e.target.value)}
+                  placeholder="Ketik nama merchant/toko (misal: Netflix, PLN)..."
+                  className="flex-1 bg-[#181818] border border-[#333333] rounded-lg px-3 py-1.5 font-body-sm text-[12px] text-white placeholder-[#666666] focus:outline-none focus:border-emerald-500"
+                />
+                <button
+                  type="submit"
+                  disabled={!newKeywordInput.trim()}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-mono text-[11px] font-bold uppercase transition-all"
+                >
+                  + Tambah
+                </button>
+              </form>
+
+              {/* Preset suggestions */}
+              <div className="flex flex-wrap items-center gap-1 pt-1">
+                <span className="font-mono text-[9px] text-[#777777] uppercase font-bold mr-1">
+                  Saran Cepat:
+                </span>
+                {[
+                  'Netflix',
+                  'Spotify',
+                  'PLN',
+                  'Indomaret',
+                  'Alfamart',
+                  'Tokopedia',
+                  'Pertamina',
+                  'Kopi Kenangan',
+                  'Gojek',
+                  'Grab',
+                ].map((sug) => {
+                  const alreadyAdded = autoApproveWhitelist.some(
+                    (k) => k.toLowerCase() === sug.toLowerCase()
+                  );
+                  if (alreadyAdded) return null;
+                  return (
+                    <button
+                      key={sug}
+                      type="button"
+                      onClick={() => handleAddWhitelistKeyword(sug)}
+                      className="px-2 py-0.5 rounded bg-[#181818] hover:bg-[#252525] border border-[#2E2E2E] font-mono text-[10px] text-[#999999] hover:text-white transition-colors"
+                    >
+                      + {sug}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Notification Center / Rejection Recovery Shortcut */}
+            {onOpenNotificationCenter && (
+              <div className="pt-2.5 border-t border-[#222222] flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[17px] text-amber-400">
+                    history_toggle_off
+                  </span>
+                  <span className="font-mono text-[11px] text-[#AAAAAA]">
+                    {rejectedCount > 0
+                      ? `${rejectedCount} notifikasi ditolak dapat dipulihkan`
+                      : 'Riwayat penolakan notifikasi & arsip mutasi'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenNotificationCenter}
+                  className="px-2.5 py-1 rounded-lg bg-[#1E1E1E] hover:bg-[#282828] border border-[#333333] text-white font-mono text-[10px] font-bold uppercase flex items-center gap-1 transition-colors"
+                >
+                  <span>Buka Arsip &amp; Antrean</span>
+                  {rejectedCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded bg-amber-500 text-black text-[9px] font-extrabold">
+                      {rejectedCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Database Reset & Sample Management Card */}

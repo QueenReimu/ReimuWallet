@@ -26,3 +26,6 @@ export function formatRupiahDisplay(amount: number): string {
   if (isNaN(amount) || amount === null || amount === undefined) return 'Rp 0';
   return `Rp ${amount.toLocaleString('id-ID')}`;
 }
+
+export { generateNotificationHash, isDuplicateNotification } from './notificationParser';
+

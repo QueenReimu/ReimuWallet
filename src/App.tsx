@@ -3,14 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ActiveTab, Transaction, Wallet, SavingsGoal, UserProfile } from './types';
 import {
   INITIAL_TRANSACTIONS,
   INITIAL_WALLETS,
   INITIAL_GOALS,
+  formatRupiah,
 } from './data/mockData';
 import { BackupDataPayload } from './utils/backupUtils';
+import {
+  parseFinancialNotification,
+  checkAutoApproveMatch,
+  DEFAULT_AUTO_APPROVE_WHITELIST,
+} from './utils/notificationParser';
+import { generateNotificationHash, isDuplicateNotification } from './utils/currencyUtils';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { DashboardView } from './components/DashboardView';
@@ -20,10 +27,23 @@ import { InsightsView } from './components/InsightsView';
 import { VaultView } from './components/VaultView';
 import { TransactionDetailModal } from './components/TransactionDetailModal';
 import { DetectionTesterModal } from './components/DetectionTesterModal';
+import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { EditProfileModal } from './components/EditProfileModal';
+import { ExportReportModal } from './components/ExportReportModal';
+import { AndroidPermissionModal } from './components/AndroidPermissionModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showAndroidPermissionModal, setShowAndroidPermissionModal] = useState(false);
+  const [isNotificationPermissionGranted, setIsNotificationPermissionGranted] = useState<boolean>(() => {
+    return localStorage.getItem('reimu_notification_permission') === 'true';
+  });
+
+  const handlePermissionChanged = (granted: boolean) => {
+    setIsNotificationPermissionGranted(granted);
+    localStorage.setItem('reimu_notification_permission', String(granted));
+  };
 
   // User Profile state with localStorage persistence
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
@@ -84,12 +104,30 @@ export default function App() {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [showNotificationToast, setShowNotificationToast] = useState(true);
   const [showDetectionModal, setShowDetectionModal] = useState(false);
+  const [showNotificationCenter, setShowNotificationCenter] = useState(false);
   const [instantEntryInitialType, setInstantEntryInitialType] = useState<'expense' | 'income'>('expense');
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     const saved = localStorage.getItem('reimu_theme');
     if (saved === 'light' || saved === 'dark') return saved;
     return 'dark';
   });
+
+  // Segregate transactions: Only 'confirmed' or legacy manual transactions enter history & affect stats (Rule 8)
+  const confirmedTransactions = useMemo(() => {
+    return transactions.filter(
+      (t) => t.status === 'confirmed' || (!t.status && (!t.source || t.source === 'manual'))
+    );
+  }, [transactions]);
+
+  // Detected transactions waiting for user confirmation (Rule 6 & 7)
+  const pendingTransactions = useMemo(() => {
+    return transactions.filter((t) => t.status === 'pending');
+  }, [transactions]);
+
+  // Rejected / dismissed transactions archived for reference & recovery
+  const rejectedTransactions = useMemo(() => {
+    return transactions.filter((t) => t.status === 'rejected');
+  }, [transactions]);
 
   // Sync to localStorage
   useEffect(() => {
@@ -168,19 +206,38 @@ export default function App() {
     return wId === q || wName === q || wName.includes(q) || q.includes(wName);
   };
 
-  // Handle saving new transaction
+  // Handle saving new manual transaction (Rule 9: manual remains manual)
   const handleSaveTransaction = (newTx: Omit<Transaction, 'id'>) => {
     const created: Transaction = {
       ...newTx,
       id: `tx-${Date.now()}`,
+      source: newTx.source || 'manual',
+      status: 'confirmed',
     };
 
     // 1. Prepend new transaction to persistent state so it shows at the top of the ledger
     setTransactions((prev) => [created, ...prev]);
 
     // 2. Mathematically update affected wallets
-    setWallets((prev) =>
-      prev.map((w) => {
+    setWallets((prev) => {
+      if (prev.length === 0) {
+        // Auto-create initial primary wallet so new users are never left without a wallet
+        const initialBalance = created.type === 'income' ? created.amount : 0;
+        const newWallet: Wallet = {
+          id: 'wallet-default-cash',
+          name: created.wallet || 'Dompet Tunai',
+          type: 'pocket',
+          balance: initialBalance,
+          icon: 'payments',
+          colorClass: 'bg-[#FF5E36]',
+          isPrimary: true,
+          monthlyTransactionsCount: 1,
+        };
+        localStorage.setItem('reimu_wallets', JSON.stringify([newWallet]));
+        return [newWallet];
+      }
+
+      return prev.map((w) => {
         let newBalance = w.balance;
         let countDelta = 0;
 
@@ -205,11 +262,260 @@ export default function App() {
           balance: newBalance,
           monthlyTransactionsCount: Math.max(0, (w.monthlyTransactionsCount || 0) + countDelta),
         };
-      })
-    );
+      });
+    });
 
     // 3. Immediately transition view to 'transactions' (the ledger tab)
     setActiveTab('transactions');
+  };
+
+  /**
+   * Processes an incoming notification or SMS string.
+   * Enforces rules 2, 4, 5, 6, and anti-duplicate check.
+   */
+  const handleProcessDetectedNotification = (
+    rawText: string,
+    matchedWalletId?: string
+  ): { success: boolean; message: string; transaction?: Transaction } => {
+    const parsed = parseFinancialNotification(rawText, wallets);
+
+    // Rule 2 & 5: Pastikan nominal hanya diambil dari angka Rp atau IDR. Jika tidak jelas, jangan buat transaksi.
+    if (!parsed || parsed.amount <= 0) {
+      return {
+        success: false,
+        message: 'Nominal transaksi Rp atau IDR tidak ditemukan dengan jelas. Transaksi tidak dapat dibuat.',
+      };
+    }
+
+    // Anti-duplicate rule: cegah notifikasi yang sama diproses berulang
+    const hash = generateNotificationHash(rawText, parsed.amount);
+    if (isDuplicateNotification(rawText, parsed.amount, transactions)) {
+      return {
+        success: false,
+        message: 'Notifikasi ini sudah pernah terdeteksi sebelumnya (anti-duplicate aktif).',
+      };
+    }
+
+    const matchedW =
+      wallets.find((w) => w.id === (matchedWalletId || parsed.matchedWalletId)) || wallets[0];
+    const walletName = matchedW ? matchedW.name : parsed.walletName || 'Kas / Tunai';
+
+    // Smart Detection: Check Auto-Approve Whitelist
+    const isAutoApproveOn = localStorage.getItem('reimu_auto_approve_enabled') === 'true';
+    let whitelist: string[] = DEFAULT_AUTO_APPROVE_WHITELIST;
+    try {
+      const saved = localStorage.getItem('reimu_auto_approve_whitelist');
+      if (saved) whitelist = JSON.parse(saved);
+    } catch (_) {}
+
+    const autoApproveCheck = isAutoApproveOn
+      ? checkAutoApproveMatch(parsed.title, rawText, whitelist)
+      : { isMatched: false };
+
+    // If auto-approved by whitelist: directly confirmed & balance adjusted!
+    if (autoApproveCheck.isMatched) {
+      const confirmedTx: Transaction = {
+        id: `tx-auto-${Date.now()}`,
+        title: parsed.title,
+        category: parsed.category,
+        type: parsed.type,
+        amount: parsed.amount,
+        wallet: walletName,
+        targetWallet: parsed.type === 'transfer' ? 'Brankas' : undefined,
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        note: `Auto-Approve Whitelist [${autoApproveCheck.matchedKeyword}] • ${parsed.institution}`,
+        rawNotification: rawText,
+        notificationHash: hash,
+        source: 'notification',
+        status: 'confirmed',
+      };
+
+      setTransactions((prev) => [confirmedTx, ...prev]);
+
+      // Apply balance changes to wallet immediately
+      setWallets((prev) => {
+        if (prev.length === 0) {
+          const initialBalance = confirmedTx.type === 'income' ? confirmedTx.amount : 0;
+          return [
+            {
+              id: 'wallet-default-cash',
+              name: confirmedTx.wallet || 'Dompet Tunai',
+              type: 'pocket',
+              balance: initialBalance,
+              icon: 'payments',
+              colorClass: 'bg-[#FF5E36]',
+              isPrimary: true,
+              monthlyTransactionsCount: 1,
+            },
+          ];
+        }
+
+        return prev.map((w) => {
+          let newBalance = w.balance;
+          let countDelta = 0;
+
+          if (matchesWallet(w, confirmedTx.wallet)) {
+            if (confirmedTx.type === 'income') {
+              newBalance += confirmedTx.amount;
+            } else if (confirmedTx.type === 'expense' || confirmedTx.type === 'transfer') {
+              newBalance = Math.max(0, newBalance - confirmedTx.amount);
+            }
+            countDelta = 1;
+          }
+
+          if (
+            confirmedTx.type === 'transfer' &&
+            confirmedTx.targetWallet &&
+            matchesWallet(w, confirmedTx.targetWallet)
+          ) {
+            newBalance += confirmedTx.amount;
+            countDelta = 1;
+          }
+
+          return {
+            ...w,
+            balance: newBalance,
+            monthlyTransactionsCount: Math.max(0, (w.monthlyTransactionsCount || 0) + countDelta),
+          };
+        });
+      });
+
+      return {
+        success: true,
+        message: `Auto-Approve Aktif: Transaksi Rp ${formatRupiah(confirmedTx.amount)} (${confirmedTx.title}) langsung dikonfirmasi otomatis ke buku kas [${autoApproveCheck.matchedKeyword}].`,
+        transaction: confirmedTx,
+      };
+    }
+
+    // Standard Detection (Manual confirmation queue):
+    // Rule 6: Transaksi dari Notification/SMS harus masuk sebagai PENDING terlebih dahulu
+    const pendingTx: Transaction = {
+      id: `tx-detected-${Date.now()}`,
+      title: parsed.title,
+      category: parsed.category,
+      type: parsed.type,
+      amount: parsed.amount,
+      wallet: walletName,
+      targetWallet: parsed.type === 'transfer' ? 'Brankas' : undefined,
+      date: new Date().toISOString().split('T')[0],
+      time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+      note: `Otomatis dari ${parsed.institution}`,
+      rawNotification: rawText,
+      notificationHash: hash,
+      source: 'notification',
+      status: 'pending',
+    };
+
+    // Rule 8: Saldo TIDAK diubah saat pending. Masuk ke antrean transaksi sebagai pending.
+    setTransactions((prev) => [pendingTx, ...prev]);
+
+    return {
+      success: true,
+      message: `Notifikasi berhasil dideteksi: Rp ${formatRupiah(pendingTx.amount)} (${pendingTx.title}). Masuk sebagai PENDING, membutuhkan konfirmasi.`,
+      transaction: pendingTx,
+    };
+  };
+
+  // Listen for native Android notifications dispatched from ReimuNotificationListener via WebView bridge
+  useEffect(() => {
+    const handleNativeNotif = (e: any) => {
+      if (e.detail && e.detail.text) {
+        handleProcessDetectedNotification(e.detail.text);
+      }
+    };
+    window.addEventListener('reimu:notification', handleNativeNotif);
+    return () => window.removeEventListener('reimu:notification', handleNativeNotif);
+  }, [wallets, transactions]);
+
+  // Live Clipboard Monitor: if user enabled clipboard monitoring, check clipboard on app focus
+  useEffect(() => {
+    const checkClipboardOnFocus = async () => {
+      const isClipActive = localStorage.getItem('reimu_clipboard_monitor') === 'true';
+      if (!isClipActive) return;
+      try {
+        if (navigator.clipboard && document.hasFocus()) {
+          const clipText = await navigator.clipboard.readText();
+          if (
+            clipText &&
+            (clipText.includes('Rp') || clipText.includes('IDR')) &&
+            (clipText.includes('DANA') || clipText.includes('berhasil') || clipText.includes('Transfer') || clipText.includes('GoPay') || clipText.includes('BCA'))
+          ) {
+            handleProcessDetectedNotification(clipText);
+          }
+        }
+      } catch (_) {}
+    };
+
+    window.addEventListener('focus', checkClipboardOnFocus);
+    return () => window.removeEventListener('focus', checkClipboardOnFocus);
+  }, [wallets, transactions]);
+
+  /**
+   * User Confirmation: "Benar" (Rule 7 & 8)
+   * Status becomes 'confirmed', updates wallet balance, enters History and statistics.
+   */
+  const handleConfirmPendingTransaction = (id: string) => {
+    const target = transactions.find((t) => t.id === id);
+    if (!target) return;
+
+    // Update status to confirmed
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status: 'confirmed' } : t))
+    );
+
+    // Apply financial balance change to wallet (Rule 8)
+    setWallets((prev) => {
+      if (prev.length === 0) {
+        const initialBalance = target.type === 'income' ? target.amount : 0;
+        const newWallet: Wallet = {
+          id: 'wallet-default-cash',
+          name: target.wallet || 'Dompet Tunai',
+          type: 'pocket',
+          balance: initialBalance,
+          icon: 'payments',
+          colorClass: 'bg-[#FF5E36]',
+          isPrimary: true,
+          monthlyTransactionsCount: 1,
+        };
+        return [newWallet];
+      }
+
+      return prev.map((w) => {
+        let newBalance = w.balance;
+        let countDelta = 0;
+
+        if (matchesWallet(w, target.wallet)) {
+          if (target.type === 'income') {
+            newBalance += target.amount;
+          } else if (target.type === 'expense' || target.type === 'transfer') {
+            newBalance = Math.max(0, newBalance - target.amount);
+          }
+          countDelta = 1;
+        }
+
+        if (target.type === 'transfer' && target.targetWallet && matchesWallet(w, target.targetWallet)) {
+          newBalance += target.amount;
+          countDelta = 1;
+        }
+
+        return {
+          ...w,
+          balance: newBalance,
+          monthlyTransactionsCount: Math.max(0, (w.monthlyTransactionsCount || 0) + countDelta),
+        };
+      });
+    });
+  };
+
+  /**
+   * User Confirmation: "Tidak" (Rule 7 & 8)
+   * Status becomes 'rejected', does NOT affect wallet balance or stats.
+   */
+  const handleRejectPendingTransaction = (id: string) => {
+    setTransactions((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status: 'rejected' } : t))
+    );
   };
 
   // Handle updating an existing or newly confirmed transaction
@@ -347,46 +653,153 @@ export default function App() {
         activeTab={activeTab}
         userProfile={userProfile}
         onProfileClick={() => setShowEditProfileModal(true)}
+        onNotificationsClick={() => setShowNotificationCenter(true)}
+        pendingCount={pendingTransactions.length}
         onNavigate={setActiveTab}
         theme={theme}
         onToggleTheme={toggleTheme}
       />
 
       {/* Main Content Area Container strictly bounded for mobile app viewports */}
-      <main className="flex-1 w-full max-w-md mx-auto px-3.5 sm:px-4 pt-16 pb-28 overflow-x-hidden">
+      <main className="flex-1 w-full max-w-md mx-auto px-3.5 sm:px-4 pt-header-safe pb-nav-safe overflow-x-hidden">
+        {/* User Confirmation Banner for Detected Transactions (Rule 7 & 8) */}
+        {pendingTransactions.length > 0 && (
+          <div className="mb-4 p-4 rounded-2xl bg-[#1C1815] border-2 border-[#FF5E36] shadow-[0_4px_24px_rgba(255,94,54,0.22)] flex flex-col gap-3 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#FF5E36] animate-pulse"></span>
+                <span className="font-label-caps text-[10px] text-[#FF5E36] font-black uppercase tracking-[0.16em]">
+                  KONFIRMASI DETEKSI TRANSAKSI OTOMATIS
+                </span>
+              </div>
+              <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-[#FF5E36]/20 text-[#FF5E36] font-bold">
+                {pendingTransactions.length} Menunggu
+              </span>
+            </div>
+
+            {pendingTransactions.slice(0, 1).map((pTx) => (
+              <div key={pTx.id} className="flex flex-col gap-2.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex flex-col min-w-0">
+                    <span className="font-body-md text-[14px] font-bold text-[#F1F5F9] truncate">
+                      {pTx.title}
+                    </span>
+                    <div className="flex items-center gap-2 mt-0.5 text-[#94A3B8] font-mono text-[11px]">
+                      <span className="px-1.5 py-0.5 rounded bg-[#28303F] text-white text-[9px] uppercase font-bold">
+                        {pTx.wallet}
+                      </span>
+                      <span>•</span>
+                      <span className="uppercase text-[10px]">{pTx.category}</span>
+                      <span>•</span>
+                      <span className="text-[10px]">{pTx.time}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end shrink-0">
+                    <span className="font-mono text-[16px] font-black text-white">
+                      {pTx.type === 'income' ? '+ ' : '− '}Rp {formatRupiah(pTx.amount)}
+                    </span>
+                    <span className="font-mono text-[9px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold mt-0.5">
+                      Status: Pending
+                    </span>
+                  </div>
+                </div>
+
+                {pTx.rawNotification && (
+                  <div className="p-2.5 rounded-xl bg-[#151921] border border-[#28303F] font-mono text-[11px] text-[#CBD5E1] italic leading-relaxed">
+                    "{pTx.rawNotification}"
+                  </div>
+                )}
+
+                {/* User Confirmation Buttons: Benar / Tidak */}
+                <div className="flex items-center gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleRejectPendingTransaction(pTx.id)}
+                    className="flex-1 h-10 rounded-xl bg-[#151921] hover:bg-red-500/15 text-red-400 hover:text-red-300 font-mono text-[11px] font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 border border-[#28303F] hover:border-red-500/40 active:scale-95 transition-all"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">close</span>
+                    <span>Tidak (Tolak)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmPendingTransaction(pTx.id)}
+                    className="flex-1 h-10 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-[11px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-[0_0_12px_rgba(16,185,129,0.35)] active:scale-95 transition-all"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">check</span>
+                    <span>Benar (Konfirmasi)</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {pendingTransactions.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setShowNotificationCenter(true)}
+                className="text-center font-mono text-[11px] text-[#FF5E36] hover:underline font-bold py-1"
+              >
+                Lihat Semua {pendingTransactions.length} Transaksi Tertangkap →
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Dynamic Android Notification Detection Pill */}
         {showNotificationToast && activeTab !== 'instant-entry' && (
-          <div className="mb-3.5 p-3 rounded-xl bg-[#151921] border border-[#28303F] flex items-center justify-between gap-2.5 transition-all">
+          <div
+            className={`mb-3.5 p-3 rounded-xl border flex items-center justify-between gap-2.5 transition-all ${
+              isNotificationPermissionGranted
+                ? 'bg-[#151921] border-[#28303F]'
+                : 'bg-amber-500/10 border-amber-500/30'
+            }`}
+          >
             <div
-              onClick={() => setShowDetectionModal(true)}
+              onClick={() => setShowAndroidPermissionModal(true)}
               className="flex items-center gap-3 cursor-pointer min-w-0 flex-1"
             >
-              <div className="w-8 h-8 rounded-lg bg-[#2A1711] border border-[#FF5E36]/30 flex items-center justify-center text-[#FF5E36] shrink-0">
-                <span className="material-symbols-outlined text-[18px]">notifications_active</span>
+              <div
+                className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                  isNotificationPermissionGranted
+                    ? 'bg-[#2A1711] border border-[#FF5E36]/30 text-[#FF5E36]'
+                    : 'bg-amber-500/20 border border-amber-500/40 text-amber-400'
+                }`}
+              >
+                <span className="material-symbols-outlined text-[18px]">
+                  {isNotificationPermissionGranted ? 'notifications_active' : 'lock_open'}
+                </span>
               </div>
               <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-label-caps text-[9px] text-[#FF5E36] font-bold uppercase tracking-[0.15em]">
-                    Deteksi Otomatis
+                  <span
+                    className={`font-label-caps text-[9px] font-bold uppercase tracking-[0.15em] ${
+                      isNotificationPermissionGranted ? 'text-[#FF5E36]' : 'text-amber-400'
+                    }`}
+                  >
+                    {isNotificationPermissionGranted ? 'Deteksi Otomatis: Aktif' : 'Izin Android: Belum Di-Allow'}
                   </span>
                   <span className="font-mono text-[10px] text-[#94A3B8] uppercase tracking-wider">
-                    {transactions.length === 0 ? 'Mode Pengujian Siap' : 'DANA / Bank • Siap'}
+                    {isNotificationPermissionGranted ? 'DANA / Bank • Siap' : 'Wajib Izin HP'}
                   </span>
                 </div>
                 <span className="font-body-md text-[13px] font-semibold text-[#F1F5F9] truncate">
-                  {transactions.length === 0
-                    ? 'Uji Baca Notifikasi & SMS (BCA, DANA, GoPay)'
-                    : 'Uji deteksi notifikasi mutasi secara langsung'}
+                  {isNotificationPermissionGranted
+                    ? 'Ketuk untuk uji transaksi DANA live atau salin notifikasi mutasi'
+                    : 'Buka Pengaturan Android agar mutasi transaksi dapat terdeteksi'}
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
-                onClick={() => setShowDetectionModal(true)}
-                className="px-2.5 py-1 rounded-lg bg-[#FF5E36] text-white text-[10px] font-bold uppercase tracking-wider hover:bg-[#E04822] active:scale-95 transition-all"
+                onClick={() => setShowAndroidPermissionModal(true)}
+                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider active:scale-95 transition-all shadow-sm ${
+                  isNotificationPermissionGranted
+                    ? 'bg-[#FF5E36] text-white hover:bg-[#E04822]'
+                    : 'bg-amber-500 text-black hover:bg-amber-400 font-extrabold'
+                }`}
               >
-                Uji Coba
+                {isNotificationPermissionGranted ? 'Uji Live' : 'Buka Setting'}
               </button>
               <button
                 onClick={() => setShowNotificationToast(false)}
@@ -399,11 +812,11 @@ export default function App() {
           </div>
         )}
 
-        {/* View Switcher */}
+        {/* View Switcher: Only confirmed transactions feed into History and stats (Rule 8) */}
         {activeTab === 'dashboard' && (
           <DashboardView
             wallets={wallets}
-            transactions={transactions}
+            transactions={confirmedTransactions}
             userProfile={userProfile}
             onOpenEditProfile={() => setShowEditProfileModal(true)}
             onNavigate={setActiveTab}
@@ -413,11 +826,11 @@ export default function App() {
 
         {(activeTab === 'transactions' || (activeTab as string) === 'ledger') && (
           <LedgerView
-            transactions={transactions}
+            transactions={confirmedTransactions}
             wallets={wallets}
             onSelectTransaction={(tx) => setSelectedTransaction(tx)}
             onDeleteTransaction={handleDeleteTransaction}
-            onExportLedger={() => alert('Mengekspor CSV & JSON Buku Kas September 2026...')}
+            onExportLedger={() => setShowExportModal(true)}
             onRecordNewTransaction={() => setActiveTab('instant-entry')}
           />
         )}
@@ -433,10 +846,12 @@ export default function App() {
 
         {activeTab === 'analytics' && (
           <InsightsView
-            transactions={transactions}
+            transactions={confirmedTransactions}
             wallets={wallets}
             savingsGoals={savingsGoals}
+            userProfile={userProfile}
             onNavigateToInstantEntry={() => setActiveTab('instant-entry')}
+            onOpenExportReport={() => setShowExportModal(true)}
           />
         )}
 
@@ -444,8 +859,8 @@ export default function App() {
           <VaultView
             wallets={wallets}
             savingsGoals={savingsGoals}
-            transactions={transactions}
-            totalTransactionsCount={transactions.length}
+            transactions={confirmedTransactions}
+            totalTransactionsCount={confirmedTransactions.length}
             userProfile={userProfile}
             onOpenEditProfile={() => setShowEditProfileModal(true)}
             onAddWallet={handleAddWallet}
@@ -460,6 +875,12 @@ export default function App() {
             onNavigateToLedger={() => setActiveTab('transactions')}
             theme={theme}
             onToggleTheme={toggleTheme}
+            isNotificationPermissionGranted={isNotificationPermissionGranted}
+            onOpenAndroidPermissionModal={() => setShowAndroidPermissionModal(true)}
+            onSimulateDanaTransaction={(text) => handleProcessDetectedNotification(text)}
+            onOpenNotificationCenter={() => setShowNotificationCenter(true)}
+            rejectedCount={rejectedTransactions.length}
+            pendingCount={pendingTransactions.length}
           />
         )}
       </main>
@@ -483,13 +904,55 @@ export default function App() {
         />
       )}
 
-      {/* Top Banner Detection Tester Modal */}
+      {/* Detection Tester Modal */}
       <DetectionTesterModal
         isOpen={showDetectionModal}
         onClose={() => setShowDetectionModal(false)}
         wallets={wallets}
+        onProcessNotification={handleProcessDetectedNotification}
         onSaveTransaction={handleSaveTransaction}
+        onConfirmPendingTransaction={handleConfirmPendingTransaction}
+        onRejectPendingTransaction={handleRejectPendingTransaction}
+        pendingTransactions={pendingTransactions}
         onNavigateToLedger={() => setActiveTab('transactions')}
+        onOpenPermissionSettings={() => setShowAndroidPermissionModal(true)}
+      />
+
+      {/* Notification Center Modal (Pending Reviews, Rejected Archive & Simulation) */}
+      <NotificationCenterModal
+        isOpen={showNotificationCenter}
+        onClose={() => setShowNotificationCenter(false)}
+        wallets={wallets}
+        pendingNotifications={pendingTransactions}
+        rejectedNotifications={rejectedTransactions}
+        onConfirmTransaction={(tx) => handleConfirmPendingTransaction(tx.id)}
+        onDismissNotification={(id) => handleRejectPendingTransaction(id)}
+        onRestoreRejectedNotification={(id) => handleConfirmPendingTransaction(id)}
+        onDeletePermanently={(id) => handleDeleteTransaction(id)}
+        onInspectTransaction={(tx) => {
+          setSelectedTransaction(tx);
+          setShowNotificationCenter(false);
+        }}
+        onSimulateNewNotification={(text) => handleProcessDetectedNotification(text)}
+      />
+
+      {/* Financial Report Export Modal (PDF, CSV, JSON) */}
+      <ExportReportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        transactions={confirmedTransactions}
+        wallets={wallets}
+        savingsGoals={savingsGoals}
+        userProfile={userProfile}
+      />
+
+      {/* Android Notification Permission & Live Testing Modal */}
+      <AndroidPermissionModal
+        isOpen={showAndroidPermissionModal}
+        onClose={() => setShowAndroidPermissionModal(false)}
+        isPermissionGranted={isNotificationPermissionGranted}
+        onPermissionChanged={handlePermissionChanged}
+        onSimulateDanaTransaction={(text) => handleProcessDetectedNotification(text)}
       />
 
       {/* Bottom Floating Navigation Bar */}

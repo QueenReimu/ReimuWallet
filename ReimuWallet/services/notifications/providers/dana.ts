@@ -1,5 +1,5 @@
 import { TransactionType } from '../../../types/transaction';
-import { parseRupiahInput } from '../../../utils/currency';
+import { extractRupiahAmount } from '../../../utils/currency';
 
 export interface ParsedNotificationResult {
   provider: string;
@@ -21,12 +21,8 @@ export function parseDanaNotification(title: string, text: string): ParsedNotifi
     return null;
   }
 
-  // Look for amount: "sebesar Rp 25.000" or "Rp25.000" or "Rp. 25.000"
-  const amountMatch = content.match(/Rp\s*([0-9.]+)/i);
-  if (!amountMatch) return null;
-
-  const rawAmountStr = amountMatch[1].replace(/\./g, '');
-  const amount = parseInt(rawAmountStr, 10);
+  // Strictly extract amount only from Rp or IDR formats
+  const amount = extractRupiahAmount(content);
   if (!amount || amount <= 0) return null;
 
   // Determine Type & Description

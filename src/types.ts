@@ -1,4 +1,6 @@
 export type TransactionType = 'expense' | 'income' | 'transfer';
+export type TransactionStatus = 'pending' | 'confirmed' | 'rejected';
+export type TransactionSource = 'manual' | 'notification' | 'import';
 
 export interface Transaction {
   id: string;
@@ -13,6 +15,9 @@ export interface Transaction {
   note?: string;
   hasReceipt?: boolean;
   rawNotification?: string;
+  source?: TransactionSource;
+  status?: TransactionStatus;
+  notificationHash?: string;
 }
 
 export interface Wallet {
@@ -58,6 +63,15 @@ export interface InterWalletTransfer {
   amount: number;
   dateStr: string;
   tag: string;
+}
+
+export interface PresetItem {
+  id: string;
+  title: string;
+  amount: number;
+  category: string;
+  type: TransactionType;
+  walletName?: string;
 }
 
 export type ActiveTab = 'dashboard' | 'transactions' | 'instant-entry' | 'analytics' | 'vault-settings';

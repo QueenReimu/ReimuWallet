@@ -7,38 +7,43 @@ interface DetectionTesterModalProps {
   isOpen: boolean;
   onClose: () => void;
   wallets: Wallet[];
-  onSaveTransaction: (tx: Omit<Transaction, 'id'>) => void;
+  onProcessNotification?: (rawText: string, matchedWalletId?: string) => { success: boolean; message: string; transaction?: Transaction };
+  onSaveTransaction?: (tx: Omit<Transaction, 'id'>) => void;
+  onConfirmPendingTransaction?: (id: string) => void;
+  onRejectPendingTransaction?: (id: string) => void;
+  pendingTransactions?: Transaction[];
   onNavigateToLedger?: () => void;
+  onOpenPermissionSettings?: () => void;
 }
 
 const TEST_NOTIFICATION_CATALOG = [
   {
-    institution: 'BCA (Pemasukan)',
-    icon: 'account_balance',
-    sample: 'BCA: M-Transfer Berhasil ke Rekening 8921 Sebesar Rp 250.000 dari PT KLIEN FREELANCE.',
-  },
-  {
-    institution: 'DANA (Makanan)',
+    institution: 'DANA (Rp 28.000)',
     icon: 'restaurant',
-    sample: 'DANA: Pembayaran sebesar Rp 25.000 ke Kopi Kenangan telah berhasil.',
+    sample: 'DANA: Pembayaran sebesar Rp 28.000 ke Kopi Kenangan telah berhasil.',
   },
   {
-    institution: 'GoPay (Transport)',
+    institution: 'GoPay (Rp28.000)',
     icon: 'commute',
-    sample: 'GoPay: Pembayaran sebesar Rp 18.000 ke GoJek Ojek Online Stasiun sukses.',
+    sample: 'GoPay: Pembayaran sebesar Rp28.000 ke Kopi Kenangan sukses.',
   },
   {
-    institution: 'Mandiri Livin (Tagihan)',
+    institution: 'BCA (Rp1.500.000)',
+    icon: 'account_balance',
+    sample: 'BCA: M-Transfer Masuk sebesar Rp1.500.000 dari PT SOLUSI TEKNOLOGI.',
+  },
+  {
+    institution: 'Mandiri (IDR 28.000)',
     icon: 'receipt_long',
-    sample: 'Livin by Mandiri: Pembayaran Tagihan Listrik PLN sebesar Rp 135.000 telah berhasil.',
+    sample: 'Livin by Mandiri: Transaksi Debit IDR 28.000 di HokBen berhasil.',
   },
   {
-    institution: 'ShopeePay (Belanja)',
-    icon: 'shopping_bag',
-    sample: 'ShopeePay: Pembayaran sebesar Rp 85.000 di Tokopedia / Shopee Store berhasil.',
+    institution: 'SMS Non-Nominal (Negatif)',
+    icon: 'block',
+    sample: 'SMS Bank: Kode OTP 492019 berlaku s/d 2026-09-02 jam 14:20 ke Rekening 0148927492 Ref 9823491 Telp 08123456789.',
   },
   {
-    institution: 'BRImo (Transfer)',
+    institution: 'BRImo (Transfer Keluar)',
     icon: 'sync_alt',
     sample: 'BRImo: Transfer keluar sebesar Rp 150.000 ke Rekening BCA telah diproses.',
   },
@@ -48,12 +53,17 @@ export const DetectionTesterModal: React.FC<DetectionTesterModalProps> = ({
   isOpen,
   onClose,
   wallets,
+  onProcessNotification,
   onSaveTransaction,
+  onConfirmPendingTransaction,
+  onRejectPendingTransaction,
+  pendingTransactions = [],
   onNavigateToLedger,
+  onOpenPermissionSettings,
 }) => {
-  const [inputText, setInputText] = useState(TEST_NOTIFICATION_CATALOG[1].sample);
-  const [lastSavedTx, setLastSavedTx] = useState<Transaction | null>(null);
-  const [saveToast, setSaveToast] = useState<string | null>(null);
+  const [inputText, setInputText] = useState(TEST_NOTIFICATION_CATALOG[0].sample);
+  const [lastCreatedTx, setLastCreatedTx] = useState<Transaction | null>(null);
+  const [statusFeedback, setStatusFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
   if (!isOpen) return null;
 
@@ -61,34 +71,59 @@ export const DetectionTesterModal: React.FC<DetectionTesterModalProps> = ({
 
   const handleSelectSample = (sample: string) => {
     setInputText(sample);
-    setSaveToast(null);
+    setStatusFeedback(null);
   };
 
-  const handleExecuteSave = () => {
-    if (!parsed || parsed.amount <= 0) return;
+  const handleExecuteProcess = () => {
+    // 1. Strict nominal requirement (Rule 2 & 5)
+    if (!parsed || parsed.amount <= 0) {
+      setStatusFeedback({
+        type: 'error',
+        message: 'Nominal Rp atau IDR tidak ditemukan dengan jelas. Transaksi tidak dapat dibuat.',
+      });
+      return;
+    }
 
-    const matchedW = wallets.find((w) => w.id === parsed.matchedWalletId) || wallets[0];
-    const walletName = matchedW ? matchedW.name : parsed.walletName || 'Kas / Tunai';
+    if (onProcessNotification) {
+      const res = onProcessNotification(inputText, parsed.matchedWalletId);
+      if (!res.success) {
+        setStatusFeedback({
+          type: 'error',
+          message: res.message,
+        });
+        return;
+      }
 
-    const newTx: Omit<Transaction, 'id'> = {
-      title: parsed.title,
-      category: parsed.category,
-      type: parsed.type,
-      amount: parsed.amount,
-      wallet: walletName,
-      targetWallet: parsed.type === 'transfer' ? 'Brankas' : undefined,
-      date: new Date().toISOString().split('T')[0],
-      time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
-      note: `Hasil Pengujian Deteksi Otomatis (${parsed.institution})`,
-      rawNotification: parsed.rawText,
-    };
+      setLastCreatedTx(res.transaction || null);
+      setStatusFeedback({
+        type: 'info',
+        message: res.message,
+      });
+    } else if (onSaveTransaction) {
+      const matchedW = wallets.find((w) => w.id === parsed.matchedWalletId) || wallets[0];
+      const walletName = matchedW ? matchedW.name : parsed.walletName || 'Kas / Tunai';
 
-    onSaveTransaction(newTx);
-    setSaveToast(`Berhasil dicatat! Rp ${formatRupiah(parsed.amount)} masuk ke dompet ${walletName}`);
+      const newTx: Omit<Transaction, 'id'> = {
+        title: parsed.title,
+        category: parsed.category,
+        type: parsed.type,
+        amount: parsed.amount,
+        wallet: walletName,
+        targetWallet: parsed.type === 'transfer' ? 'Brankas' : undefined,
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+        note: `Hasil Pengujian Deteksi Otomatis (${parsed.institution})`,
+        rawNotification: parsed.rawText,
+        source: 'notification',
+        status: 'pending',
+      };
 
-    setTimeout(() => {
-      setSaveToast(null);
-    }, 4000);
+      onSaveTransaction(newTx);
+      setStatusFeedback({
+        type: 'info',
+        message: `Transaksi Rp ${formatRupiah(parsed.amount)} masuk sebagai PENDING. Silakan konfirmasi.`,
+      });
+    }
   };
 
   return (
@@ -120,6 +155,28 @@ export const DetectionTesterModal: React.FC<DetectionTesterModalProps> = ({
 
         {/* Scrollable Content */}
         <div className="overflow-y-auto pr-1 py-3 flex flex-col gap-4">
+          {/* Live Android Permission Hint Banner */}
+          <div className="p-2.5 rounded-xl bg-[#201515] border border-[#FF3E00]/30 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-[18px] text-[#FF3E00] shrink-0">android</span>
+              <span className="font-body-sm text-[11px] text-[#DDDDDD]">
+                Ingin deteksi langsung dari aplikasi DANA di HP? Pastikan izin notifikasi Android di-allow.
+              </span>
+            </div>
+            {onOpenPermissionSettings && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenPermissionSettings();
+                }}
+                className="px-2.5 py-1 rounded-lg bg-[#FF3E00] hover:bg-[#ff5722] text-white font-mono text-[10px] font-bold uppercase tracking-wider shrink-0"
+              >
+                Cek Izin HP
+              </button>
+            )}
+          </div>
+
           {/* Quick Select Presets */}
           <div className="flex flex-col gap-1.5">
             <span className="font-mono text-[10px] text-[#888888] uppercase tracking-wider font-bold">
@@ -232,25 +289,85 @@ export const DetectionTesterModal: React.FC<DetectionTesterModalProps> = ({
             </div>
           </div>
 
-          {/* Success Toast Banner */}
-          {saveToast && (
-            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/40 text-emerald-400 flex items-center justify-between font-mono text-[11px] animate-fade-in">
-              <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-[18px]">verified</span>
-                <span>{saveToast}</span>
+          {/* Status Feedback Banner */}
+          {statusFeedback && (
+            <div
+              className={`p-3 rounded-xl border flex items-start gap-2.5 font-mono text-[11px] animate-fade-in ${
+                statusFeedback.type === 'error'
+                  ? 'bg-red-500/10 border-red-500/40 text-red-400'
+                  : statusFeedback.type === 'info'
+                  ? 'bg-amber-500/10 border-amber-500/40 text-amber-400'
+                  : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">
+                {statusFeedback.type === 'error'
+                  ? 'error'
+                  : statusFeedback.type === 'info'
+                  ? 'info'
+                  : 'verified'}
+              </span>
+              <div className="flex-1">
+                <span>{statusFeedback.message}</span>
               </div>
-              {onNavigateToLedger && (
+            </div>
+          )}
+
+          {/* Pending Confirmation Box if there is a pending transaction */}
+          {lastCreatedTx && lastCreatedTx.status === 'pending' && (
+            <div className="p-3.5 rounded-xl bg-[#1F1916] border border-[#FF5E36]/50 flex flex-col gap-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-label-caps text-[9px] text-[#FF5E36] font-bold uppercase tracking-wider">
+                  KONFIRMASI HASIL DETEKSI (LANGKAH 2)
+                </span>
+                <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold uppercase">
+                  Pending
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between text-[12px] font-mono">
+                <span className="text-white font-bold">{lastCreatedTx.title}</span>
+                <span className="text-[#FF5E36] font-bold">
+                  Rp {formatRupiah(lastCreatedTx.amount)}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => {
-                    onClose();
-                    onNavigateToLedger();
+                    if (onRejectPendingTransaction) {
+                      onRejectPendingTransaction(lastCreatedTx.id);
+                      setLastCreatedTx({ ...lastCreatedTx, status: 'rejected' });
+                      setStatusFeedback({
+                        type: 'info',
+                        message: 'Transaksi ditolak (status: rejected). Saldo dan History tidak berubah.',
+                      });
+                    }
                   }}
-                  className="px-2 py-1 bg-emerald-500 text-black font-black text-[10px] rounded uppercase hover:bg-emerald-400 transition-colors"
+                  className="flex-1 h-9 rounded-lg bg-[#151921] hover:bg-red-500/20 text-red-400 font-mono text-[10px] font-bold uppercase tracking-wider border border-[#28303F] flex items-center justify-center gap-1 active:scale-95 transition-all"
                 >
-                  Buka Kas
+                  <span className="material-symbols-outlined text-[14px]">close</span>
+                  <span>Tidak (Tolak)</span>
                 </button>
-              )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onConfirmPendingTransaction) {
+                      onConfirmPendingTransaction(lastCreatedTx.id);
+                      setLastCreatedTx({ ...lastCreatedTx, status: 'confirmed' });
+                      setStatusFeedback({
+                        type: 'success',
+                        message: 'Transaksi dikonfirmasi (status: confirmed)! Masuk ke History dan saldo dompet telah diperbarui.',
+                      });
+                    }
+                  }}
+                  className="flex-1 h-9 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-1 active:scale-95 transition-all"
+                >
+                  <span className="material-symbols-outlined text-[14px]">check</span>
+                  <span>Benar (Konfirmasi)</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -259,12 +376,12 @@ export const DetectionTesterModal: React.FC<DetectionTesterModalProps> = ({
         <div className="pt-3 border-t border-[#222222] flex items-center gap-2">
           <button
             type="button"
-            onClick={handleExecuteSave}
+            onClick={handleExecuteProcess}
             disabled={parsed.amount <= 0}
             className="flex-1 h-11 rounded-xl bg-[#FF3E00] hover:bg-[#ff551c] disabled:bg-[#222222] text-white disabled:text-[#666666] font-mono text-[12px] font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(255,62,0,0.3)] active:scale-98"
           >
-            <span className="material-symbols-outlined text-[18px]">bolt</span>
-            <span>Uji &amp; Simpan ke Buku Kas</span>
+            <span className="material-symbols-outlined text-[18px]">sensors</span>
+            <span>Simulasikan Notifikasi (Pending)</span>
           </button>
           <button
             type="button"
