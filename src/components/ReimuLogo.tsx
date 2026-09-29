@@ -82,3 +82,5 @@ export const ReimuLogo: React.FC<ReimuLogoProps> = ({
     </svg>
   );
 };
+
+

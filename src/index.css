@@ -74,6 +74,14 @@ html {
   padding-right: env(safe-area-inset-right, 0px);
 }
 
+/* Header and navigation safe padding for mobile APK / notch / edge-to-edge screens */
+.pt-header-safe {
+  padding-top: calc(56px + env(safe-area-inset-top, 0px) + 14px);
+}
+.pb-nav-safe {
+  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px) + 28px);
+}
+
 /* Headings font assignment */
 h1, h2, h3, h4, .font-display {
   font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;

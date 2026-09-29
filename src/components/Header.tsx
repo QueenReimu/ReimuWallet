@@ -8,6 +8,7 @@ interface HeaderProps {
   onBack?: () => void;
   onProfileClick?: () => void;
   onNotificationsClick?: () => void;
+  pendingCount?: number;
   onNavigate?: (tab: ActiveTab) => void;
   showBack?: boolean;
   customTitle?: string;
@@ -21,6 +22,7 @@ export const Header: React.FC<HeaderProps> = ({
   onBack,
   onProfileClick,
   onNotificationsClick,
+  pendingCount = 0,
   onNavigate,
   showBack = false,
   customTitle,
@@ -60,7 +62,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           ) : (
             <div className="flex items-center shrink-0">
-              <ReimuLogo size={28} className="rounded-lg border border-[#FF5E36]/30" />
+              <ReimuLogo size={30} className="rounded-lg border border-[#FF5E36]/40 shadow-sm shadow-[#FF5E36]/20" />
             </div>
           )}
           <h1 className="font-extrabold text-[17px] text-[#F1F5F9] tracking-tight uppercase font-display truncate">
@@ -84,13 +86,20 @@ export const Header: React.FC<HeaderProps> = ({
 
           {!showBack && (
             <button
+              id="header-notif-btn"
               onClick={() => onNotificationsClick?.()}
               aria-label="Pusat Deteksi Notifikasi"
               title="Pusat Deteksi & Notifikasi Otomatis"
               className="w-8 h-8 rounded-xl border border-[#28303F] bg-[#151921] flex items-center justify-center text-[#94A3B8] hover:text-white hover:border-[#3D4758] transition-colors relative active:scale-95"
             >
               <span className="material-symbols-outlined text-[18px]">notifications</span>
-              <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#FF5E36] rounded-full"></span>
+              {pendingCount > 0 ? (
+                <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 bg-[#FF5E36] text-white text-[9px] font-black rounded-full flex items-center justify-center shadow-[0_0_8px_rgba(255,94,54,0.6)] animate-pulse">
+                  {pendingCount}
+                </span>
+              ) : (
+                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#FF5E36] rounded-full"></span>
+              )}
             </button>
           )}
           <button

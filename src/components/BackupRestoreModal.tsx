@@ -4,7 +4,9 @@ import { formatRupiah } from '../data/mockData';
 import {
   generateBackupJson,
   downloadBackupFile,
+  shareOrSaveBackupFile,
   validateBackupJson,
+  cleanAndRepairJsonString,
   BackupDataPayload,
 } from '../utils/backupUtils';
 
@@ -74,7 +76,7 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
   // Total balance of current state
   const currentTotalBalance = wallets.reduce((acc, w) => acc + (Number(w.balance) || 0), 0);
 
-  const handleDownloadBackup = () => {
+  const handleDownloadBackup = async () => {
     const jsonStr = generateBackupJson({
       wallets,
       transactions,
@@ -82,9 +84,14 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
       userProfile,
       theme,
     });
-    downloadBackupFile(jsonStr);
-    setDownloadSuccess(true);
-    setTimeout(() => setDownloadSuccess(false), 3000);
+
+    const res = await shareOrSaveBackupFile(jsonStr);
+    if (res.success) {
+      setDownloadSuccess(true);
+      setTimeout(() => setDownloadSuccess(false), 3000);
+    } else {
+      setErrorMessage(res.error || 'Gagal mengunduh file secara otomatis. Silakan gunakan tombol Salin Teks JSON.');
+    }
   };
 
   const handleCopyJson = async () => {
@@ -101,6 +108,21 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
       setTimeout(() => setCopySuccess(false), 2500);
     } catch (e) {
       setErrorMessage('Gagal menyalin teks ke clipboard. Silakan gunakan tombol Unduh.');
+    }
+  };
+
+  const handlePasteFromClipboard = async () => {
+    try {
+      setErrorMessage(null);
+      const text = await navigator.clipboard.readText();
+      if (!text || !text.trim()) {
+        setErrorMessage('Papan klip (clipboard) kosong. Salin teks JSON terlebih dahulu.');
+        return;
+      }
+      setPastedJsonText(text);
+      processJsonString(text);
+    } catch (err) {
+      setErrorMessage('Tidak dapat membaca papan klip secara otomatis. Silakan tempelkan manual di kolom teks di bawah.');
     }
   };
 
@@ -316,6 +338,14 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
                 </button>
               </div>
 
+              {/* Status or Error Banner in Backup Tab */}
+              {errorMessage && activeTab === 'backup' && (
+                <div className="p-3 rounded-xl bg-[#2D1616] border border-[#FF4D4D]/50 text-[#FF8888] font-mono text-[11px] flex items-center gap-2 animate-in fade-in">
+                  <span className="material-symbols-outlined text-[16px] shrink-0">error</span>
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
               {/* Toggle Preview Raw JSON */}
               <div className="pt-2 border-t border-[#242424]">
                 <button
@@ -378,7 +408,7 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".json,application/json"
+                    accept=".json,application/json,text/plain,text/*"
                     onChange={handleFileChange}
                     className="hidden"
                   />
@@ -413,6 +443,19 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
               {/* Method B: Paste JSON Text Directly */}
               {restoreInputMethod === 'paste' && (
                 <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-mono text-[10px] text-[#888888]">
+                      Kolom Teks Cadangan (JSON)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handlePasteFromClipboard}
+                      className="font-mono text-[10px] text-[#FF5E36] hover:text-[#FF8260] flex items-center gap-1 transition-colors px-2 py-0.5 rounded bg-[#24120C] border border-[#FF3E00]/30"
+                    >
+                      <span className="material-symbols-outlined text-[13px]">content_paste</span>
+                      <span>Tempel dari Clipboard</span>
+                    </button>
+                  </div>
                   <textarea
                     value={pastedJsonText}
                     onChange={(e) => setPastedJsonText(e.target.value)}
@@ -420,15 +463,32 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
                     rows={5}
                     className="w-full p-3 rounded-xl bg-[#141414] border border-[#2C2C2C] text-[#E0E0E0] font-mono text-[11px] focus:outline-none focus:border-[#FF3E00] resize-none"
                   />
-                  <button
-                    type="button"
-                    onClick={() => processJsonString(pastedJsonText)}
-                    disabled={!pastedJsonText.trim()}
-                    className="w-full py-2.5 rounded-xl bg-[#222222] hover:bg-[#2A2A2A] disabled:opacity-50 text-white font-mono text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all border border-[#333333]"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">search_check</span>
-                    <span>Cek &amp; Muat Teks JSON</span>
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => processJsonString(pastedJsonText)}
+                      disabled={!pastedJsonText.trim()}
+                      className="flex-1 py-2.5 rounded-xl bg-[#FF3E00] hover:bg-[#E04822] disabled:opacity-50 text-white font-mono text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all shadow-[0_0_10px_rgba(255,62,0,0.25)] active:scale-95"
+                    >
+                      <span className="material-symbols-outlined text-[16px]">search_check</span>
+                      <span>Periksa &amp; Muat Teks JSON</span>
+                    </button>
+                    {pastedJsonText && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPastedJsonText('');
+                          setPreviewPayload(null);
+                          setPreviewStats(null);
+                          setErrorMessage(null);
+                        }}
+                        className="py-2.5 px-3 rounded-xl bg-[#222222] hover:bg-[#2A2A2A] text-[#888888] hover:text-white font-mono text-[11px] border border-[#333333]"
+                        title="Bersihkan teks"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">clear</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 

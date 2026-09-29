@@ -73,20 +73,165 @@ export function generateBackupJson(
   return JSON.stringify(payload, null, 2);
 }
 
-export function downloadBackupFile(jsonString: string, filename?: string) {
+export function cleanAndRepairJsonString(raw: string): string {
+  if (!raw) return '';
+  let str = raw.trim();
+
+  // Strip Markdown code blocks if the user copied from chat or markdown: ```json ... ```
+  if (str.startsWith('```')) {
+    str = str.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  }
+
+  // Remove potential UTF-8 Byte Order Mark (BOM) or zero-width spaces
+  str = str.replace(/^\uFEFF/, '').replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+  // If already parseable, return immediately
+  try {
+    JSON.parse(str);
+    return str;
+  } catch (initialErr) {
+    // Attempt repairs
+  }
+
+  // Handle smart quotes / curly quotes that mobile keyboards often substitute
+  str = str
+    .replace(/[\u201C\u201D\u201E\u201F\u00AB\u00BB]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'");
+
+  // Fix "unterminated string in JSON" or truncated text:
+  // Count unescaped quotes to check if a string literal was left open
+  let inString = false;
+  let isEscaped = false;
+  const stack: ('{' | '[')[] = [];
+
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (isEscaped) {
+      isEscaped = false;
+      continue;
+    }
+    if (ch === '\\') {
+      isEscaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (ch === '{' || ch === '[') {
+        stack.push(ch);
+      } else if (ch === '}' && stack.length && stack[stack.length - 1] === '{') {
+        stack.pop();
+      } else if (ch === ']' && stack.length && stack[stack.length - 1] === '[') {
+        stack.pop();
+      }
+    }
+  }
+
+  // If loop ended inside an open string literal, close it
+  if (inString) {
+    str += '"';
+  }
+
+  // Remove trailing commas before closing braces/brackets e.g. ", }" -> " }"
+  str = str.replace(/,\s*([}\]])/g, '$1');
+
+  // Close any unclosed object/array brackets
+  while (stack.length > 0) {
+    const last = stack.pop();
+    if (last === '{') str += '}';
+    else if (last === '[') str += ']';
+  }
+
+  return str;
+}
+
+export function downloadBackupFile(jsonString: string, filename?: string): boolean {
   const dateStr = new Date().toISOString().slice(0, 10);
   const now = new Date();
   const timeStr = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
   const finalName = filename || `ReimuWallet_Backup_${dateStr}_${timeStr}.json`;
-  const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = finalName;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  try {
+    const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = finalName;
+    link.setAttribute('download', finalName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    return true;
+  } catch (err) {
+    try {
+      const dataUri = `data:application/json;charset=utf-8,${encodeURIComponent(jsonString)}`;
+      const link = document.createElement('a');
+      link.href = dataUri;
+      link.download = finalName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return true;
+    } catch (dataErr) {
+      console.error('Direct download failed:', dataErr);
+      return false;
+    }
+  }
+}
+
+export async function shareOrSaveBackupFile(
+  jsonString: string,
+  filename?: string
+): Promise<{ success: boolean; method: 'share' | 'download' | 'copy'; error?: string }> {
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const timeStr = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+  const finalName = filename || `ReimuWallet_Backup_${dateStr}_${timeStr}.json`;
+
+  // 1. First prioritize direct file download (Standard across all browsers, webviews, and Android)
+  const downloaded = downloadBackupFile(jsonString, finalName);
+  if (downloaded) {
+    return { success: true, method: 'download' };
+  }
+
+  // 2. Try Web Share API as secondary method if direct download failed
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    try {
+      const file = new File([jsonString], finalName, { type: 'application/json' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'Cadangan Reimu Wallet',
+          text: `Berkas cadangan data keuangan Reimu Wallet (${finalName})`,
+        });
+        return { success: true, method: 'share' };
+      }
+    } catch (shareErr: any) {
+      if (shareErr?.name === 'AbortError') {
+        return { success: true, method: 'share' };
+      }
+      // Transient error like user gesture missing, ignore silently
+    }
+  }
+
+  // 3. Final fallback: copy text to clipboard
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(jsonString);
+      return { success: true, method: 'copy' };
+    }
+  } catch (clipErr: any) {
+    // Clipboard failed
+  }
+
+  return {
+    success: false,
+    method: 'download',
+    error: 'Tidak dapat mengunduh atau menyalin file di perangkat ini.',
+  };
 }
 
 export function validateBackupJson(jsonInput: string | object): BackupValidationResult {
@@ -97,7 +242,14 @@ export function validateBackupJson(jsonInput: string | object): BackupValidation
       if (!trimmed) {
         return { valid: false, error: 'Data JSON kosong. Silakan pilih berkas atau masukkan teks JSON.' };
       }
-      parsed = JSON.parse(trimmed);
+      
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch (firstErr) {
+        // Attempt clean and repair (fixes unterminated strings, smart quotes, trailing commas, truncated brackets)
+        const repaired = cleanAndRepairJsonString(trimmed);
+        parsed = JSON.parse(repaired);
+      }
     } else {
       parsed = jsonInput;
     }

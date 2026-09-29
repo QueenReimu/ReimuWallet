@@ -1,21 +1,25 @@
 import React, { useState, useMemo } from 'react';
-import { Transaction, Wallet, SavingsGoal, InsightsSubTab } from '../types';
+import { Transaction, Wallet, SavingsGoal, InsightsSubTab, UserProfile } from '../types';
 import { formatRupiah } from '../data/mockData';
 
 interface InsightsViewProps {
   transactions: Transaction[];
   wallets: Wallet[];
   savingsGoals?: SavingsGoal[];
+  userProfile?: UserProfile;
   onNavigateToInstantEntry?: () => void;
   onLoadSampleData?: () => void;
+  onOpenExportReport?: () => void;
 }
 
 export const InsightsView: React.FC<InsightsViewProps> = ({
   transactions,
   wallets,
   savingsGoals = [],
+  userProfile,
   onNavigateToInstantEntry,
   onLoadSampleData,
+  onOpenExportReport,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<InsightsSubTab>('overview');
   const [monthIndex, setMonthIndex] = useState(2); // 'September 2026'
@@ -160,6 +164,10 @@ export const InsightsView: React.FC<InsightsViewProps> = ({
   }, [transactions, expenseTransactions, totalExpense]);
 
   const handleExport = () => {
+    if (onOpenExportReport) {
+      onOpenExportReport();
+      return;
+    }
     setIsExporting(true);
     setTimeout(() => {
       setIsExporting(false);

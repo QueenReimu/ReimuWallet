@@ -1,0 +1,7 @@
+task downloadLogo {
+    doLast {
+        def f = new File('D:/IDs/IDs/ReimuWallet/android/.artifacts/93eb9108-2382-4da6-9507-af4b0b9da6e7/scratch/new_logo.jpg')
+        f.parentFile.mkdirs()
+        new URL('https://cf-files.ap-southeast-1.clevercloud.com/cl-59727780072d4715ac932f9ee800a747/Logo.jpg').withInputStream { i -> f.withOutputStream { it << i } }
+    }
+}

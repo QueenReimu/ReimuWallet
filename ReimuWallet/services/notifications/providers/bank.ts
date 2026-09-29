@@ -1,4 +1,5 @@
 import { TransactionType } from '../../../types/transaction';
+import { extractRupiahAmount } from '../../../utils/currency';
 import { ParsedNotificationResult } from './dana';
 
 export function parseBankNotification(title: string, text: string): ParsedNotificationResult | null {
@@ -16,18 +17,8 @@ export function parseBankNotification(title: string, text: string): ParsedNotifi
 
   const bankName = isBca ? 'BCA' : isMandiri ? 'Mandiri' : isBri ? 'BRI' : isBni ? 'BNI' : 'Bank';
 
-  // Find amount: matches "100.000,00" or "Rp 100.000" or "Rp100.000"
-  let amount = 0;
-  const rpMatch = content.match(/Rp\s*([0-9.]+)/i);
-  if (rpMatch) {
-    amount = parseInt(rpMatch[1].replace(/\./g, ''), 10);
-  } else {
-    const bankingFormatMatch = content.match(/(?:DB|CR)\s*([0-9.]+)(?:,\d{2})?/i);
-    if (bankingFormatMatch) {
-      amount = parseInt(bankingFormatMatch[1].replace(/\./g, ''), 10);
-    }
-  }
-
+  // Strictly extract amount only from Rp or IDR formats
+  const amount = extractRupiahAmount(content);
   if (!amount || amount <= 0) return null;
 
   let type: TransactionType = 'expense';

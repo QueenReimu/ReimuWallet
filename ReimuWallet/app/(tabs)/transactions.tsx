@@ -44,6 +44,8 @@ export default function TransactionsScreen() {
   }, [selectedMonth]);
 
   const filteredTransactions = transactions.filter((tx) => {
+    // Only confirmed transactions can appear in History
+    if (!tx.confirmed) return false;
     // Month filter
     if (!tx.date.startsWith(selectedMonth)) return false;
     // Type filter
